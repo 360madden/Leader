@@ -46,6 +46,7 @@ namespace LeaderDecoder
             var input    = new InputEngine();
             var follow   = new FollowController(input, nav, settings);
             var diag     = new DiagnosticService();
+            var memory   = new MemoryEngine();
             
             bool isSimMode       = args.Length > 0 && args[0] == "--sim";
             bool isFollowEnabled = false;
@@ -61,6 +62,8 @@ namespace LeaderDecoder
             hotkey.Start();
 
             var gameStates = new GameState[5];
+            int[] processIds = new int[5];
+            IntPtr[] memoryHandles = new IntPtr[5];
             for (int i = 0; i < 5; i++) gameStates[i] = new GameState();
 
             // Mock Leader for SIM mode
@@ -143,10 +146,30 @@ namespace LeaderDecoder
                     }
                     else if (i < windows.Count)
                     {
-                        var (name, hwnd) = windows[i];
+                        var (name, hwnd, pid, baseAddr) = windows[i];
+
+                        // Bind Memory Reader if the process changed
+                        if (processIds[i] != pid)
+                        {
+                            memory.Detach(memoryHandles[i]);
+                            memoryHandles[i] = memory.Attach(pid);
+                            processIds[i] = pid;
+                        }
+
                         using (var bmp = capture.CaptureRegion(hwnd, settings.CaptureWidth, settings.CaptureHeight))
                         {
                             state = telemetry.Decode(bmp);
+                            
+                            // 🧠 Hybrid Memory Sweep
+                            if (baseAddr > 0 && settings.MemoryOffsets.TryGetValue("TargetHP", out int[]? hpOffset))
+                            {
+                                long targetHpPtr = memory.ReadMultiLevelPointer(memoryHandles[i], baseAddr, hpOffset);
+                                if (targetHpPtr > 0)
+                                {
+                                    state.TargetHP = memory.ReadInt32(memoryHandles[i], targetHpPtr);
+                                }
+                            }
+
                             // Auto-Snapshot on Sync Failure
                             if (!state.IsValid && i == 0) diag.SaveSnapshot(bmp, "sync_failure");
                         }
@@ -181,7 +204,7 @@ namespace LeaderDecoder
                         // UI Dashboard
                         string zoneFlag   = zoneChanged ? " [ZONE!]" : "       ";
                         string headingText = state.IsHeadingLocked ? $"{state.EstimatedHeading,5:F2}" : " --- ";
-                        string status = $"HP:{state.PlayerHP,3:D3} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | F:{state.RawFacing,5:F2}({headingText})";
+                        string status = $"HP:{state.PlayerHP,3:D3} THP:{state.TargetHP,5:D5} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | F:{state.RawFacing,5:F2}({headingText})";
                         string flagStr = $"{(state.IsCombat ? "[CB]" : "    ")} {(state.IsMounted ? "[MT]" : "    ")} {(state.IsAlive ? "    " : "[DEAD]")}{zoneFlag}";
                         Console.ForegroundColor = zoneChanged ? ConsoleColor.Yellow : ConsoleColor.Gray;
                         Console.WriteLine($" SLOT[{i+1}] {((i < windows.Count) ? windows[i].Name : "SIM_LEAD"),-12} | {status} | {flagStr}");
@@ -201,15 +224,17 @@ namespace LeaderDecoder
         /// <summary>
         /// Finds and enumerates active RIFT window handles.
         /// </summary>
-        static List<(string Name, IntPtr Hwnd)> FindRiftWindows()
+        static List<(string Name, IntPtr Hwnd, int ProcessId, long BaseAddress)> FindRiftWindows()
         {
-            var results = new List<(string, IntPtr)>();
+            var results = new List<(string, IntPtr, int, long)>();
             var processes = Process.GetProcessesByName("RIFT");
             foreach (var p in processes)
             {
                 if (p.MainWindowHandle != IntPtr.Zero)
                 {
-                    results.Add((p.MainWindowTitle, p.MainWindowHandle));
+                    long baseAddr = 0;
+                    try { baseAddr = p.MainModule?.BaseAddress.ToInt64() ?? 0; } catch { }
+                    results.Add((p.MainWindowTitle, p.MainWindowHandle, p.Id, baseAddr));
                 }
             }
             // Sort by Title (RIFT1, RIFT2, etc.) for stable slot mapping

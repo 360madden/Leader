@@ -12,7 +12,7 @@ namespace LeaderDecoder.Services
     public class ConfigManager
     {
         private const string ConfigPath = "settings.json";
-        public BridgeSettings Settings { get; private set; }
+        public BridgeSettings Settings { get; private set; } = null!;
 
         public ConfigManager()
         {
@@ -34,6 +34,11 @@ namespace LeaderDecoder.Services
                 else
                 {
                     Settings = new BridgeSettings();
+                    
+                    // Pre-fill a MemoryEngine template pattern so it shows up in settings.json
+                    Settings.MemoryOffsets.Add("PlayerBase", new[] { 0x01AA34B0 });
+                    Settings.MemoryOffsets.Add("TargetHP", new[] { 0x01AA34B0, 0x20, 0x48 });
+                    
                     Save(); // Persist defaults
                 }
             }

@@ -26,7 +26,7 @@ namespace LeaderDecoder.Services
         private const uint VK_PAUSE        = 0x13;
         private const int  HK_ID_TOGGLE    = 1;
 
-        private Thread   _msgThread;
+        private Thread   _msgThread = null!;
         private bool     _running;
         public  Action?  OnToggleFollow;
 

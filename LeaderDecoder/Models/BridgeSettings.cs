@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace LeaderDecoder.Models
 {
@@ -9,6 +10,9 @@ namespace LeaderDecoder.Models
     /// </summary>
     public class BridgeSettings
     {
+        // 🧠 Memory Engine (Offsets)
+        public Dictionary<string, int[]> MemoryOffsets { get; set; } = new Dictionary<string, int[]>();
+
         // 🧬 Optics & Sampling
         public int CaptureWidth { get; set; } = 28;
         public int CaptureHeight { get; set; } = 4;

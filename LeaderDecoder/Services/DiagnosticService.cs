@@ -23,14 +23,21 @@ namespace LeaderDecoder.Services
 
         private void EnsureDirectories()
         {
-            if (!Directory.Exists(LogFolder))
+            try
             {
-                Directory.CreateDirectory(LogFolder);
-            }
+                if (!Directory.Exists(LogFolder))
+                {
+                    Directory.CreateDirectory(LogFolder);
+                }
 
-            if (!File.Exists(CsvPath))
+                if (!File.Exists(CsvPath))
+                {
+                    File.WriteAllText(CsvPath, "Timestamp,Slot,X,Y,Z,Facing,HP,Flags\n");
+                }
+            }
+            catch (Exception ex)
             {
-                File.WriteAllText(CsvPath, "Timestamp,Slot,X,Y,Z,Facing,HP,Flags\n");
+                Console.WriteLine($"[DIAG] Setup Error: Could not initialize log folder. {ex.Message}");
             }
         }
 
@@ -64,7 +71,7 @@ namespace LeaderDecoder.Services
                 
                 File.AppendAllText(CsvPath, entry);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Silently fail logging to prevent loop stutters
             }
