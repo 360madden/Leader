@@ -14,5 +14,5 @@ echo.
 echo ========================================
 echo   🚀 LAUNCHING BRIDGE...
 echo ========================================
-bin\Release\net9.0\LeaderDecoder.exe
+bin\Release\net9.0\LeaderDecoder.exe %*
 pause
