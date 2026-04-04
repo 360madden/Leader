@@ -17,8 +17,17 @@ namespace LeaderDecoder
     {
         static void Main(string[] args)
         {
+            // --test mode: run encode/decode validation then exit
+            if (args.Length > 0 && args[0] == "--test")
+            {
+                RoundtripTests.Run();
+                Console.WriteLine("\nPress any key to exit...");
+                Console.ReadKey(true);
+                return;
+            }
+
             Console.Clear();
-            Console.Title = "🛰️ Leader: Multi-Agent Bridge v1.0";
+            Console.Title = "🛰️ Leader: Multi-Agent Bridge v1.2";
             
             // 🧱 Bootstrapping (Hardening Agent)
             var config = new ConfigManager();
