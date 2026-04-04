@@ -21,3 +21,4 @@ desktop.ini
 # Temp
 /tmp/
 *.tmp
+debug-live/

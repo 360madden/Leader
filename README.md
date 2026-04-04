@@ -123,6 +123,18 @@ All diagnostic output goes to `debug/` next to `LeaderDecoder.exe`:
 | `debug/sync_failure_*.png` | Auto-saved when Pixel 0 sync is lost |
 | `debug/manual_snap_*.png`  | Manual snapshots saved with `S` |
 
+### Non-Invasive Inspection Helpers
+
+Use these helper launchers when you want to validate the strip without changing the client:
+
+| Helper | Purpose |
+|--------|---------|
+| `run_live_inspector.bat` | Captures the live top-left `28x4` region from visible RIFT windows and reports sync/decode status plus saved/live window geometry context |
+| `run_screenshot_inspector.bat` | Inspects the latest RIFT screenshot, or a chosen image path, for the Leader strip |
+
+Current field notes live in:
+- `docs/non-invasive-validation.md`
+
 ---
 
 ## Module Reference
