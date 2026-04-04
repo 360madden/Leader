@@ -1,0 +1,14 @@
+  Determining projects to restore...
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
+  All projects are up-to-date for restore.
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
+  LeaderDecoder -> C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\bin\Release\net9.0\LeaderDecoder.dll
+
+Build succeeded.
+
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
+    2 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.73

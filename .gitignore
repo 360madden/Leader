@@ -1,0 +1,23 @@
+# RIFT Addon
+*.zip
+*.log
+Save/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.sln.docstates
+
+# Visual Studio Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp
+/tmp/
+*.tmp

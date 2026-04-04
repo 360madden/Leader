@@ -1,0 +1,23 @@
+Identifier = "Leader"
+Name = { English = "Leader Telemetry Bridge" }
+Description = { English = "State-of-the-art telemetry bridge for machine-vision multiboxing." }
+Author = "Antigravity"
+Website = "https://github.com/mrkoo"
+Version = "1.0.0"
+Email = "antigravity@example.com"
+Environment = "1.10"
+
+-- LUA MODULES
+-- Load order: Dependencies -> Utilities -> Orchestration
+RunOnStartup = {
+  "Modules/Encoder.lua",
+  "Modules/Renderer.lua",
+  "Modules/Gatherer.lua",
+  "Modules/DiagnosticUI.lua",
+  "main.lua"
+}
+
+-- SAVED STATE
+SavedVariables = {
+  LeaderConfig = "character"
+}
