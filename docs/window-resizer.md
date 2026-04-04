@@ -5,6 +5,7 @@
 It is optimized for the current Leader workflow:
 
 - detect live `rift_x64` / `RIFT` windows
+- identify them explicitly by **PID** and **HWND**
 - resize by **client area**, not outer frame
 - support common presets like `320x180`, `640x360`, and `1280x720`
 - support custom sizes
@@ -60,6 +61,18 @@ run_window_resizer.bat --size 960x540 --inspect
 run_window_resizer.bat --scale 0.5 --inspect
 ```
 
+### Resize a specific live window by PID
+
+```bat
+run_window_resizer.bat --pid 127928 --preset 640x360 --inspect
+```
+
+### Resize a specific live window by HWND
+
+```bat
+run_window_resizer.bat --hwnd 0x123456 --size 485x309 --inspect
+```
+
 ### Resize all detected clients and stagger them
 
 ```bat
@@ -82,6 +95,12 @@ run_window_resizer.bat --preset 485x309 --inspect --wait-ms 1000
   - target the `N`th detected window
 - `--all`
   - target all detected windows
+- `--pid N`
+  - target/filter by process id
+- `--hwnd HEX`
+  - target/filter by window handle
+- `--title-contains TEXT`
+  - target/filter by title substring
 - `--preset NAME`
   - presets:
     - `320x180`

@@ -73,7 +73,7 @@ namespace LeaderDecoder
             while (true)
             {
                 var cycleSw = Stopwatch.StartNew();
-                var windows = FindRiftWindows();
+                var windows = RiftWindowService.FindRiftWindows();
 
                 // 0. Standby Logic
                 if (windows.Count == 0 && !isSimMode)
@@ -146,7 +146,11 @@ namespace LeaderDecoder
                     }
                     else if (i < windows.Count)
                     {
-                        var (name, hwnd, pid, baseAddr) = windows[i];
+                        var window = windows[i];
+                        var name = window.Title;
+                        var hwnd = window.Hwnd;
+                        var pid = window.ProcessId;
+                        var baseAddr = window.BaseAddress;
 
                         // Bind Memory Reader if the process changed
                         if (processIds[i] != pid)
@@ -207,12 +211,12 @@ namespace LeaderDecoder
                         string status = $"HP:{state.PlayerHP,3:D3} THP:{state.TargetHP,5:D5} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | F:{state.RawFacing,5:F2}({headingText})";
                         string flagStr = $"{(state.IsCombat ? "[CB]" : "    ")} {(state.IsMounted ? "[MT]" : "    ")} {(state.IsAlive ? "    " : "[DEAD]")}{zoneFlag}";
                         Console.ForegroundColor = zoneChanged ? ConsoleColor.Yellow : ConsoleColor.Gray;
-                        Console.WriteLine($" SLOT[{i+1}] {((i < windows.Count) ? windows[i].Name : "SIM_LEAD"),-12} | {status} | {flagStr}");
+                        Console.WriteLine($" SLOT[{i+1}] {((i < windows.Count) ? windows[i].Title : "SIM_LEAD"),-12} | {status} | {flagStr}");
                         Console.ForegroundColor = ConsoleColor.Gray;
                     }
                     else
                     {
-                        Console.WriteLine($" SLOT[{i+1}] {(i < windows.Count ? windows[i].Name : "UNASSIGNED"),-12} | -- STANDBY --                                                                      ");
+                        Console.WriteLine($" SLOT[{i+1}] {(i < windows.Count ? windows[i].Title : "UNASSIGNED"),-12} | -- STANDBY --                                                                      ");
                     }
                 }
 
@@ -221,34 +225,5 @@ namespace LeaderDecoder
             }
         }
 
-        /// <summary>
-        /// Finds and enumerates active RIFT window handles.
-        /// </summary>
-        static List<(string Name, IntPtr Hwnd, int ProcessId, long BaseAddress)> FindRiftWindows()
-        {
-            var results = new List<(string, IntPtr, int, long)>();
-            var seenProcessIds = new HashSet<int>();
-
-            foreach (var processName in new[] { "rift_x64", "RIFT" })
-            {
-                foreach (var p in Process.GetProcessesByName(processName))
-                {
-                    if (p.MainWindowHandle == IntPtr.Zero || !seenProcessIds.Add(p.Id))
-                    {
-                        continue;
-                    }
-
-                    long baseAddr = 0;
-                    try { baseAddr = p.MainModule?.BaseAddress.ToInt64() ?? 0; } catch { }
-
-                    var title = string.IsNullOrWhiteSpace(p.MainWindowTitle) ? p.ProcessName : p.MainWindowTitle;
-                    results.Add((title, p.MainWindowHandle, p.Id, baseAddr));
-                }
-            }
-
-            // Sort by Title (RIFT1, RIFT2, etc.) for stable slot mapping
-            results.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Item1, b.Item1));
-            return results;
-        }
     }
 }

@@ -1,6 +1,9 @@
-using System.Diagnostics;
+using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using LeaderDecoder.Services;
 
 namespace LeaderWindowResizer;
@@ -45,21 +48,29 @@ internal static class Program
         Console.WriteLine("Resizes live RIFT client windows by client-area resolution.");
         Console.WriteLine("============================================================");
 
-        var windows = FindRiftWindows();
-        if (windows.Count == 0)
+        var allWindows = RiftWindowService.FindRiftWindows();
+        var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
+
+        Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
+        if (HasExplicitFilter(options))
         {
-            Console.Error.WriteLine("No live RIFT windows with a main handle were found.");
-            return 1;
+            Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
         }
 
-        Console.WriteLine($"Detected RIFT windows: {windows.Count}");
-        for (int i = 0; i < windows.Count; i++)
+        for (int i = 0; i < filteredWindows.Count; i++)
         {
-            var snapshot = GetWindowSnapshot(windows[i].Hwnd);
+            var snapshot = RiftWindowService.GetWindowSnapshot(filteredWindows[i].Hwnd);
             Console.WriteLine(
-                $"[{i + 1}] PID {windows[i].ProcessId} | {windows[i].Title} | " +
+                $"[{i + 1}] PID {filteredWindows[i].ProcessId} | HWND {RiftWindowService.FormatHwnd(filteredWindows[i].Hwnd)} | " +
+                $"{filteredWindows[i].ProcessName} | {filteredWindows[i].Title} | " +
                 $"Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0} | " +
                 $"Window={snapshot.WindowLeft ?? 0},{snapshot.WindowTop ?? 0}");
+        }
+
+        if (filteredWindows.Count == 0)
+        {
+            Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
+            return 1;
         }
 
         if (options.ListOnly && !options.HasResizeIntent)
@@ -75,7 +86,7 @@ internal static class Program
             return 1;
         }
 
-        var selected = SelectWindows(windows, options);
+        var selected = SelectWindows(filteredWindows, options);
         if (selected.Count == 0)
         {
             Console.Error.WriteLine("No matching RIFT windows were selected.");
@@ -91,7 +102,7 @@ internal static class Program
         for (int index = 0; index < selected.Count; index++)
         {
             var window = selected[index];
-            var before = GetWindowSnapshot(window.Hwnd);
+            var before = RiftWindowService.GetWindowSnapshot(window.Hwnd);
 
             if (before.ClientWidth is null || before.ClientHeight is null)
             {
@@ -108,7 +119,9 @@ internal static class Program
             var result = ResizeWindow(window.Hwnd, targetLeft, targetTop, targetClient.Width, targetClient.Height);
 
             Console.WriteLine();
-            Console.WriteLine($"[{index + 1}] PID {window.ProcessId} | {window.Title}");
+            Console.WriteLine(
+                $"[{index + 1}] PID {window.ProcessId} | HWND {RiftWindowService.FormatHwnd(window.Hwnd)} | " +
+                $"{window.ProcessName} | {window.Title}");
             Console.WriteLine($"  Before client: {before.ClientWidth}x{before.ClientHeight}");
             Console.WriteLine($"  After client:  {result.After.ClientWidth}x{result.After.ClientHeight}");
             Console.WriteLine($"  Target pos:    {targetLeft},{targetTop}");
@@ -140,6 +153,26 @@ internal static class Program
         return anyFailure ? 1 : 0;
     }
 
+    private static RiftWindowFilter? BuildFilter(Options options)
+    {
+        if (!HasExplicitFilter(options))
+        {
+            return null;
+        }
+
+        return new RiftWindowFilter
+        {
+            ProcessId = options.ProcessId,
+            Hwnd = options.Hwnd,
+            TitleContains = options.TitleContains
+        };
+    }
+
+    private static bool HasExplicitFilter(Options options)
+    {
+        return options.ProcessId.HasValue || options.Hwnd.HasValue || !string.IsNullOrWhiteSpace(options.TitleContains);
+    }
+
     private static string BuildIntentSummary(Options options, int selectedCount)
     {
         var parts = new List<string>();
@@ -158,6 +191,21 @@ internal static class Program
         }
 
         parts.Add(selectedCount == 1 ? "Target=1 window" : $"Target={selectedCount} windows");
+
+        if (options.ProcessId.HasValue)
+        {
+            parts.Add($"PID={options.ProcessId.Value}");
+        }
+
+        if (options.Hwnd.HasValue)
+        {
+            parts.Add($"HWND={RiftWindowService.FormatHwnd(options.Hwnd.Value)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.TitleContains))
+        {
+            parts.Add($"TitleContains={options.TitleContains}");
+        }
 
         if (options.Left.HasValue || options.Top.HasValue)
         {
@@ -184,7 +232,7 @@ internal static class Program
         return baseValue + (step * index);
     }
 
-    private static TargetClientSize ResolveTargetClientSize(Options options, WindowSnapshot before)
+    private static TargetClientSize ResolveTargetClientSize(Options options, RiftWindowSnapshot before)
     {
         if (options.Scale.HasValue)
         {
@@ -198,13 +246,13 @@ internal static class Program
 
     private static ResizeResult ResizeWindow(IntPtr hwnd, int targetLeft, int targetTop, int clientWidth, int clientHeight)
     {
-        var before = GetWindowSnapshot(hwnd);
+        var before = RiftWindowService.GetWindowSnapshot(hwnd);
 
         if (before.IsMinimized)
         {
             Win32.ShowWindow(hwnd, Win32.SW_RESTORE);
             Thread.Sleep(200);
-            before = GetWindowSnapshot(hwnd);
+            before = RiftWindowService.GetWindowSnapshot(hwnd);
         }
 
         int style = Win32.GetWindowLongPtr(hwnd, Win32.GWL_STYLE).ToInt32();
@@ -217,7 +265,7 @@ internal static class Program
         }
 
         Thread.Sleep(120);
-        var after = GetWindowSnapshot(hwnd);
+        var after = RiftWindowService.GetWindowSnapshot(hwnd);
         int widthError = clientWidth - (after.ClientWidth ?? 0);
         int heightError = clientHeight - (after.ClientHeight ?? 0);
 
@@ -232,7 +280,7 @@ internal static class Program
             }
 
             Thread.Sleep(120);
-            after = GetWindowSnapshot(hwnd);
+            after = RiftWindowService.GetWindowSnapshot(hwnd);
         }
 
         bool exactMatch = after.ClientWidth == clientWidth && after.ClientHeight == clientHeight;
@@ -257,7 +305,7 @@ internal static class Program
         return new OuterSize(rect.Right - rect.Left, rect.Bottom - rect.Top);
     }
 
-    private static List<RiftWindow> SelectWindows(List<RiftWindow> windows, Options options)
+    private static List<RiftWindowInfo> SelectWindows(List<RiftWindowInfo> windows, Options options)
     {
         if (options.AllWindows)
         {
@@ -265,7 +313,7 @@ internal static class Program
         }
 
         int targetIndex = Math.Clamp(options.WindowIndex ?? 1, 1, windows.Count);
-        return new List<RiftWindow> { windows[targetIndex - 1] };
+        return new List<RiftWindowInfo> { windows[targetIndex - 1] };
     }
 
     private static bool TryParseOptions(string[] args, out Options options, out string? error)
@@ -324,6 +372,39 @@ internal static class Program
                     }
 
                     options.WindowIndex = indexValue;
+                    break;
+
+                case "--pid":
+                    if (!TryReadInt(args, ref i, out int pidValue, out error))
+                    {
+                        return false;
+                    }
+
+                    options.ProcessId = pidValue;
+                    break;
+
+                case "--hwnd":
+                    if (!TryReadString(args, ref i, out string? hwndText, out error))
+                    {
+                        return false;
+                    }
+
+                    if (!RiftWindowService.TryParseHwnd(hwndText, out IntPtr hwnd))
+                    {
+                        error = $"Could not parse HWND value '{hwndText}'.";
+                        return false;
+                    }
+
+                    options.Hwnd = hwnd;
+                    break;
+
+                case "--title-contains":
+                    if (!TryReadString(args, ref i, out string? titleText, out error))
+                    {
+                        return false;
+                    }
+
+                    options.TitleContains = titleText;
                     break;
 
                 case "--left":
@@ -529,12 +610,17 @@ internal static class Program
         Console.WriteLine("  LeaderWindowResizer.exe --preset 640x360 --inspect");
         Console.WriteLine("  LeaderWindowResizer.exe --size 320x180 --left 45 --top 108");
         Console.WriteLine("  LeaderWindowResizer.exe --scale 0.5 --inspect");
+        Console.WriteLine("  LeaderWindowResizer.exe --pid 127928 --preset 640x360 --inspect");
+        Console.WriteLine("  LeaderWindowResizer.exe --hwnd 0x123456 --size 485x309");
         Console.WriteLine("  LeaderWindowResizer.exe --all --preset 640x360 --left 45 --top 108 --step-x 24 --step-y 24");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  --list                 List detected RIFT windows and exit if no resize target is given");
-        Console.WriteLine("  --index N              Target the Nth detected RIFT window (default: 1)");
-        Console.WriteLine("  --all                  Resize all detected RIFT windows");
+        Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit if no resize target is given");
+        Console.WriteLine("  --index N              Target the Nth filtered RIFT window (default: 1)");
+        Console.WriteLine("  --all                  Resize all filtered RIFT windows");
+        Console.WriteLine("  --pid N                Filter to a specific process id");
+        Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
+        Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
         Console.WriteLine("  --preset NAME          Presets: 320x180, 485x309, 640x360, 1280x720, 180p, 360p, 720p");
         Console.WriteLine("  --size WxH             Custom client resolution");
         Console.WriteLine("  --width N --height N   Custom client resolution");
@@ -546,55 +632,6 @@ internal static class Program
         Console.WriteLine("  --help                 Show this help");
     }
 
-    private static List<RiftWindow> FindRiftWindows()
-    {
-        var windows = new Dictionary<int, RiftWindow>();
-
-        foreach (string processName in new[] { "rift_x64", "RIFT" })
-        {
-            foreach (Process process in Process.GetProcessesByName(processName))
-            {
-                if (process.MainWindowHandle == IntPtr.Zero)
-                {
-                    continue;
-                }
-
-                windows[process.Id] = new RiftWindow
-                {
-                    ProcessId = process.Id,
-                    Title = string.IsNullOrWhiteSpace(process.MainWindowTitle) ? process.ProcessName : process.MainWindowTitle,
-                    Hwnd = process.MainWindowHandle
-                };
-            }
-        }
-
-        return windows.Values
-            .OrderBy(window => window.Title, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(window => window.ProcessId)
-            .ToList();
-    }
-
-    private static WindowSnapshot GetWindowSnapshot(IntPtr hwnd)
-    {
-        bool haveWindowRect = Win32.GetWindowRect(hwnd, out var windowRect);
-        bool haveClientRect = Win32.GetClientRect(hwnd, out var clientRect);
-        var point = new Win32.Point();
-        bool haveClientPoint = haveClientRect && Win32.ClientToScreen(hwnd, ref point);
-
-        return new WindowSnapshot
-        {
-            IsMinimized = Win32.IsIconic(hwnd),
-            WindowLeft = haveWindowRect ? windowRect.Left : null,
-            WindowTop = haveWindowRect ? windowRect.Top : null,
-            WindowWidth = haveWindowRect ? windowRect.Right - windowRect.Left : null,
-            WindowHeight = haveWindowRect ? windowRect.Bottom - windowRect.Top : null,
-            ClientLeft = haveClientPoint ? point.X : null,
-            ClientTop = haveClientPoint ? point.Y : null,
-            ClientWidth = haveClientRect ? clientRect.Right - clientRect.Left : null,
-            ClientHeight = haveClientRect ? clientRect.Bottom - clientRect.Top : null
-        };
-    }
-
     private sealed class Options
     {
         public bool ShowHelp { get; set; }
@@ -603,6 +640,9 @@ internal static class Program
         public bool Inspect { get; set; }
         public int WaitMs { get; set; } = 1000;
         public int? WindowIndex { get; set; }
+        public int? ProcessId { get; set; }
+        public IntPtr? Hwnd { get; set; }
+        public string? TitleContains { get; set; }
         public int? Left { get; set; }
         public int? Top { get; set; }
         public int StepX { get; set; }
@@ -615,30 +655,10 @@ internal static class Program
         public bool HasResizeIntent => Scale.HasValue || (Width.HasValue && Height.HasValue);
     }
 
-    private sealed class RiftWindow
-    {
-        public required int ProcessId { get; init; }
-        public required string Title { get; init; }
-        public required IntPtr Hwnd { get; init; }
-    }
-
-    private sealed class WindowSnapshot
-    {
-        public bool IsMinimized { get; init; }
-        public int? WindowLeft { get; init; }
-        public int? WindowTop { get; init; }
-        public int? WindowWidth { get; init; }
-        public int? WindowHeight { get; init; }
-        public int? ClientLeft { get; init; }
-        public int? ClientTop { get; init; }
-        public int? ClientWidth { get; init; }
-        public int? ClientHeight { get; init; }
-    }
-
     private readonly record struct ResolutionPreset(string Name, int Width, int Height);
     private readonly record struct TargetClientSize(int Width, int Height);
     private readonly record struct OuterSize(int Width, int Height);
-    private readonly record struct ResizeResult(WindowSnapshot Before, WindowSnapshot After, bool ExactMatch);
+    private readonly record struct ResizeResult(RiftWindowSnapshot Before, RiftWindowSnapshot After, bool ExactMatch);
 
     private static class Win32
     {
@@ -657,30 +677,11 @@ internal static class Program
             public int Bottom;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct Point
-        {
-            public int X;
-            public int Y;
-        }
-
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool AdjustWindowRectEx(ref Rect rect, int style, bool hasMenu, int exStyle);
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
-
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
         public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool IsIconic(IntPtr hwnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
