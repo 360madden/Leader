@@ -132,8 +132,21 @@ Use these helper launchers when you want to validate the strip without changing 
 | `run_live_inspector.bat` | Captures the live top-left `28x4` region from visible RIFT windows and reports sync/decode status plus saved/live window geometry context |
 | `run_screenshot_inspector.bat` | Inspects the latest RIFT screenshot, or a chosen image path, for the Leader strip |
 
+### Window Resize Helper
+
+Use these helper launchers when you want to move between known-good live client sizes quickly:
+
+| Helper | Purpose |
+|--------|---------|
+| `run_window_resizer.bat` | Generic client-area resize tool with presets, custom sizes, dynamic `--scale`, optional multi-window offsets, and immediate `--inspect` validation |
+| `resize_320x180.bat` | One-click resize to `320x180` plus immediate strip validation |
+| `resize_640x360.bat` | One-click resize to `640x360` plus immediate strip validation |
+| `resize_1280x720.bat` | One-click resize to `1280x720` plus immediate strip validation |
+| `resize_half_current.bat` | One-click dynamic half-size resize from the current live client size |
+
 Current field notes live in:
 - `docs/non-invasive-validation.md`
+- `docs/window-resizer.md`
 
 ---
 
