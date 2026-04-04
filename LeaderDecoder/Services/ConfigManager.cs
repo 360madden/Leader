@@ -45,6 +45,16 @@ namespace LeaderDecoder.Services
         }
 
         /// <summary>
+        /// Hot-reloads settings from disk at runtime (bound to 'R' key in Program.cs).
+        /// </summary>
+        public void Reload()
+        {
+            Console.WriteLine("[CONFIG] 🔄 Reloading settings.json...");
+            Load();
+            Console.WriteLine($"[CONFIG] ✅ Reloaded — FPS:{Settings.TargetFPS} P:{Settings.TurnP} D:{Settings.TurnD} Dist:{Settings.FollowDistanceMin}-{Settings.FollowDistanceMax}m");
+        }
+
+        /// <summary>
         /// Saves current settings to settings.json.
         /// </summary>
         public void Save()

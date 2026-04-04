@@ -25,21 +25,31 @@ namespace LeaderDecoder
             var settings = config.Settings;
             
             Console.WriteLine("================================================================================");
-            Console.WriteLine("🛰️  LEADER: OPTICAL TELEMETRY BRIDGE (v1.0)");
+            Console.WriteLine("🛰️  LEADER: OPTICAL TELEMETRY BRIDGE (v1.1)");
             Console.WriteLine($"   Mode: {(args.Length > 0 && args[0] == "--sim" ? "SIMULATION" : "LIVE SCAN")}");
+            Console.WriteLine("   Keys: [T]=Toggle Follow  [ScrollLock]=Global Toggle  [L]=Log  [S]=Snap  [R]=Reload Config");
             Console.WriteLine("================================================================================");
 
             // Initialize Modular Services
-            var capture = new CaptureEngine();
+            var capture  = new CaptureEngine();
             var telemetry = new TelemetryService();
-            var nav = new NavigationKernel();
-            var input = new InputEngine();
-            var follow = new FollowController(input, nav, settings);
-            var diag = new DiagnosticService();
+            var nav      = new NavigationKernel();
+            var input    = new InputEngine();
+            var follow   = new FollowController(input, nav, settings);
+            var diag     = new DiagnosticService();
             
-            bool isSimMode = args.Length > 0 && args[0] == "--sim";
+            bool isSimMode       = args.Length > 0 && args[0] == "--sim";
             bool isFollowEnabled = false;
             bool isLoggingEnabled = false;
+
+            // Global hotkey — ScrollLock toggles follow even inside RIFT
+            using var hotkey = new GlobalHotkeyService();
+            hotkey.OnToggleFollow = () =>
+            {
+                isFollowEnabled = !isFollowEnabled;
+                Console.Beep(isFollowEnabled ? 880 : 440, 120);
+            };
+            hotkey.Start();
 
             var gameStates = new GameState[5];
             for (int i = 0; i < 5; i++) gameStates[i] = new GameState();
@@ -80,15 +90,20 @@ namespace LeaderDecoder
                     }
                     if (key == ConsoleKey.S)
                     {
-                         // Snapshot the first active window's telemetry
                          if (!isSimMode && windows.Count > 0)
                          {
                              using (var bmp = capture.CaptureRegion(windows[0].Hwnd, settings.CaptureWidth, settings.CaptureHeight))
-                             {
                                  diag.SaveSnapshot(bmp, "manual_snap");
-                             }
                              Console.Beep(1200, 50);
                          }
+                    }
+                    if (key == ConsoleKey.R)
+                    {
+                        config.Reload();
+                        settings = config.Settings;
+                        follow.ApplySettings(settings);
+                        Console.Beep(600, 80);
+                        Console.Beep(900, 80);
                     }
                 }
 

@@ -2,13 +2,19 @@
 C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
   All projects are up-to-date for restore.
 C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\Services\ConfigManager.cs(17,16): warning CS8618: Non-nullable property 'Settings' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the property as nullable. [C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj]
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\Services\GlobalHotkeyService.cs(29,26): warning CS8618: Non-nullable field '_msgThread' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the field as nullable. [C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj]
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\Services\DiagnosticService.cs(67,30): warning CS0168: The variable 'ex' is declared but never used [C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj]
   LeaderDecoder -> C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\bin\Release\net9.0\LeaderDecoder.dll
 
 Build succeeded.
 
 C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
 C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj : warning NU1603: LeaderDecoder depends on System.Drawing.Common (>= 9.0.115) but System.Drawing.Common 9.0.115 was not found. System.Drawing.Common 10.0.0 was resolved instead.
-    2 Warning(s)
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\Services\ConfigManager.cs(17,16): warning CS8618: Non-nullable property 'Settings' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the property as nullable. [C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj]
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\Services\GlobalHotkeyService.cs(29,26): warning CS8618: Non-nullable field '_msgThread' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the field as nullable. [C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj]
+C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\Services\DiagnosticService.cs(67,30): warning CS0168: The variable 'ex' is declared but never used [C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\LeaderDecoder.csproj]
+    5 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:00.73
+Time Elapsed 00:00:00.97
