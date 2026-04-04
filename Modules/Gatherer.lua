@@ -26,9 +26,18 @@ function Gatherer.GetPacket()
     local ok, p = pcall(Inspect.Unit.Detail, "player")
     if not ok or not p then return nil end
 
+    local targetSpec = "player.target"
+    local targetUnitId = nil
+    if Inspect.Unit and Inspect.Unit.Lookup then
+        local targetIdOk, targetId = pcall(Inspect.Unit.Lookup, targetSpec)
+        if targetIdOk then
+            targetUnitId = targetId
+        end
+    end
+
     local t = nil
-    if p.target then
-        local tok, tu = pcall(Inspect.Unit.Detail, p.target)
+    if targetUnitId then
+        local tok, tu = pcall(Inspect.Unit.Detail, targetSpec)
         if tok and tu then t = tu end
     end
 
@@ -43,7 +52,7 @@ function Gatherer.GetPacket()
         coordZ   = p.coordZ   or 0,
         facing   = p.facing   or 0,
         zoneHash = 0,
-        targetID = p.target   or nil,
+        targetID = targetUnitId or (t and t.id) or nil,
     }
 
     -- Zone hash — we use a hash over the zone string since it can be nil during transitions
@@ -65,9 +74,9 @@ function Gatherer.GetPacket()
     --   bit 3 = IsAlive
     --   bit 4 = IsMounted
     if p.combat  then packet.flags = packet.flags + 1  end
-    if p.target  then packet.flags = packet.flags + 2  end
+    if packet.targetID then packet.flags = packet.flags + 2  end
     if p.move    then packet.flags = packet.flags + 4  end
-    if not p.dead then packet.flags = packet.flags + 8 end
+    if (p.health or 0) > 0 then packet.flags = packet.flags + 8 end
     if p.mounted then packet.flags = packet.flags + 16 end
 
     return packet

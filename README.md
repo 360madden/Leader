@@ -58,7 +58,7 @@ Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0).
 ### 3. In-Game Setup
 - Load into RIFT with the **Leader** addon enabled.  
 - The 28×4 pixel strip will appear in the **top-left corner** of every instance.  
-- Type `/leader diag` to toggle the real-time telemetry audit overlay.
+- Type `/leader diag` to toggle the real-time telemetry audit overlay. If `/leader` is unavailable because another addon already registered it, use `/leaderbridge diag` instead.
 
 ### 4. Bridge Controls
 

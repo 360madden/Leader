@@ -10,10 +10,54 @@ local addon, Private = ...
 local state = {
     lastUpdate   = 0,
     updateInterval = 0.033, -- 30Hz target (~33ms)
+    lastFrameTime = nil,
 }
 
+local registeredSlashCommands = {}
+
+local function FormatSlashCommands()
+    if #registeredSlashCommands == 0 then
+        return "/leaderbridge"
+    end
+
+    local commands = {}
+    for index, commandName in ipairs(registeredSlashCommands) do
+        commands[index] = "/" .. commandName
+    end
+
+    return table.concat(commands, " or ")
+end
+
+local function HandleSlashCommand(_, params)
+    params = string.lower(string.match(params or "", "^%s*(.-)%s*$"))
+    local command = string.match(params, "^(%S+)") or ""
+
+    if command == "diag" then
+        Private.DiagUI.Toggle()
+    elseif command == "help" or command == "" then
+        print("🛰️ Leader Commands:")
+        print("  " .. FormatSlashCommands() .. " diag   — Toggle telemetry audit overlay")
+    end
+end
+
+local function RegisterSlashCommand(commandName)
+    local slashEvent = Command.Slash.Register(commandName)
+    if not slashEvent then
+        return false
+    end
+
+    Command.Event.Attach(slashEvent, HandleSlashCommand, "LeaderSlash_" .. commandName)
+    table.insert(registeredSlashCommands, commandName)
+    return true
+end
+
 --- Orchestrates a single telemetry update.
-local function UpdateTelemetry(handle, delta)
+local function UpdateTelemetry()
+    local now = Inspect.Time.Frame()
+    local lastFrameTime = state.lastFrameTime or now
+    local delta = now - lastFrameTime
+    state.lastFrameTime = now
+
     state.lastUpdate = state.lastUpdate + delta
     if state.lastUpdate < state.updateInterval then return end
     state.lastUpdate = 0
@@ -58,21 +102,20 @@ local function Init()
     Private.Renderer.Init()
     Private.DiagUI.Create()
 
-    -- Slash command: /leader diag
-    table.insert(Command.Slash.Register("leader"), {
-        function(params)
-            if params == "diag" then
-                Private.DiagUI.Toggle()
-            elseif params == "help" or params == "" then
-                print("🛰️ Leader Commands:")
-                print("  /leader diag   — Toggle telemetry audit overlay")
-            end
-        end,
-        "Leader", "main"
-    })
+    local leaderRegistered = RegisterSlashCommand("leader")
+    local leaderBridgeRegistered = RegisterSlashCommand("leaderbridge")
+    Private.PrimarySlashCommand = registeredSlashCommands[1]
 
     Command.Event.Attach(Event.System.Update.Begin, UpdateTelemetry, "LeaderUpdate")
-    print("🛰️ Leader Telemetry Bridge v1.1 loaded. Type /leader help for commands.")
+
+    if Private.PrimarySlashCommand then
+        print("🛰️ Leader Telemetry Bridge v1.1 loaded. Type /" .. Private.PrimarySlashCommand .. " help for commands.")
+        if not leaderRegistered and leaderBridgeRegistered then
+            print("🛰️ Leader: /leader is unavailable on this client, so /leaderbridge was registered instead.")
+        end
+    else
+        print("🛰️ Leader Telemetry Bridge v1.1 loaded, but no slash command could be registered.")
+    end
 end
 
 Init()

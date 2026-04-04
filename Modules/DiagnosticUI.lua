@@ -4,7 +4,7 @@ local addon, Private = ...
 --[[
 -- LEADER TELEMETRY AUDIT UI v1.1
 -- Toggleable on-screen overlay showing live encoded values.
--- Type /leader diag to toggle.
+-- Type the registered Leader slash command with "diag" to toggle.
 -- Aligned with Gatherer.lua v1.1 packet schema.
 --]]
 
@@ -83,7 +83,11 @@ end
 function DiagUI.Toggle()
     _visible = not _visible
     if _panel then _panel:SetVisible(_visible) end
-    print("🛰️ Leader: Audit UI " .. (_visible and "ON" or "OFF") .. " — /leader diag to toggle")
+    if Private.PrimarySlashCommand then
+        print("🛰️ Leader: Audit UI " .. (_visible and "ON" or "OFF") .. " — /" .. Private.PrimarySlashCommand .. " diag to toggle")
+    else
+        print("🛰️ Leader: Audit UI " .. (_visible and "ON" or "OFF") .. ". No slash command is currently registered.")
+    end
 end
 
 Private.DiagUI = DiagUI
