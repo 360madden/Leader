@@ -53,6 +53,8 @@ end
 
 --- Orchestrates a single telemetry update.
 local function UpdateTelemetry()
+    Private.Renderer.SyncLayout()
+
     local now = Inspect.Time.Frame()
     local lastFrameTime = state.lastFrameTime or now
     local delta = now - lastFrameTime

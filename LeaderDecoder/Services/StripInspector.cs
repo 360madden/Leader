@@ -23,6 +23,7 @@ namespace LeaderDecoder.Services
         public required IReadOnlyList<StripSample> Samples { get; init; }
         public int Width { get; init; }
         public int Height { get; init; }
+        public string ProfileName { get; init; } = "native-4x4";
     }
 
     /// <summary>
@@ -31,6 +32,20 @@ namespace LeaderDecoder.Services
     /// </summary>
     public static class StripInspector
     {
+        private sealed class SampleProfile
+        {
+            public required string Name { get; init; }
+            public required int[] SampleXs { get; init; }
+            public int SampleY { get; init; }
+        }
+
+        private static readonly SampleProfile[] Profiles =
+        {
+            new SampleProfile { Name = "native-4x4", SampleXs = new[] { 2, 6, 10, 14, 18, 22, 26 }, SampleY = 2 },
+            new SampleProfile { Name = "compact-2x2", SampleXs = new[] { 1, 3, 5, 7, 9, 11, 13 }, SampleY = 1 },
+            new SampleProfile { Name = "compact-1x1", SampleXs = new[] { 0, 1, 2, 4, 5, 6, 7 }, SampleY = 0 },
+        };
+
         public const int BlockCount = 7;
         public const int BlockWidth = 4;
         public const int StripWidth = 28;
@@ -44,12 +59,13 @@ namespace LeaderDecoder.Services
             using var normalized = NormalizeToArgb32(source);
             var telemetry = new TelemetryService();
             var state = telemetry.Decode(normalized);
-            int sampleY = Math.Min(SampleOffset, Math.Max(0, normalized.Height - 1));
+            var profile = ResolveProfile(normalized);
 
             var samples = new List<StripSample>(BlockCount);
             for (int pixelIndex = 0; pixelIndex < BlockCount; pixelIndex++)
             {
-                int sampleX = Math.Min(pixelIndex * BlockWidth + SampleOffset, Math.Max(0, normalized.Width - 1));
+                int sampleX = Math.Min(profile.SampleXs[pixelIndex], Math.Max(0, normalized.Width - 1));
+                int sampleY = Math.Min(profile.SampleY, Math.Max(0, normalized.Height - 1));
                 Color c = normalized.GetPixel(sampleX, sampleY);
 
                 samples.Add(new StripSample
@@ -69,6 +85,7 @@ namespace LeaderDecoder.Services
                 Samples = samples,
                 Width = normalized.Width,
                 Height = normalized.Height,
+                ProfileName = profile.Name,
             };
         }
 
@@ -77,6 +94,8 @@ namespace LeaderDecoder.Services
             ArgumentNullException.ThrowIfNull(analysis);
 
             var sb = new StringBuilder();
+            sb.Append("Profile: ");
+            sb.AppendLine(analysis.ProfileName);
             sb.AppendLine("Pixel  Sample  RGB");
             sb.AppendLine("-----  ------  ----------------");
 
@@ -132,6 +151,45 @@ namespace LeaderDecoder.Services
             }
 
             return copy;
+        }
+
+        private static SampleProfile ResolveProfile(Bitmap normalized)
+        {
+            for (int index = 0; index < Profiles.Length; index++)
+            {
+                var profile = Profiles[index];
+                if (!ProfileFits(profile, normalized.Width, normalized.Height))
+                {
+                    continue;
+                }
+
+                Color sync = normalized.GetPixel(profile.SampleXs[0], profile.SampleY);
+                if (sync.R >= 240 && sync.G <= 15 && sync.B >= 240)
+                {
+                    return profile;
+                }
+            }
+
+            return Profiles[0];
+        }
+
+        private static bool ProfileFits(SampleProfile profile, int width, int height)
+        {
+            if (profile.SampleY < 0 || profile.SampleY >= height)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < profile.SampleXs.Length; index++)
+            {
+                int sampleX = profile.SampleXs[index];
+                if (sampleX < 0 || sampleX >= width)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 }

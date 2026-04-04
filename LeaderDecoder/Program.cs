@@ -227,18 +227,27 @@ namespace LeaderDecoder
         static List<(string Name, IntPtr Hwnd, int ProcessId, long BaseAddress)> FindRiftWindows()
         {
             var results = new List<(string, IntPtr, int, long)>();
-            var processes = Process.GetProcessesByName("RIFT");
-            foreach (var p in processes)
+            var seenProcessIds = new HashSet<int>();
+
+            foreach (var processName in new[] { "rift_x64", "RIFT" })
             {
-                if (p.MainWindowHandle != IntPtr.Zero)
+                foreach (var p in Process.GetProcessesByName(processName))
                 {
+                    if (p.MainWindowHandle == IntPtr.Zero || !seenProcessIds.Add(p.Id))
+                    {
+                        continue;
+                    }
+
                     long baseAddr = 0;
                     try { baseAddr = p.MainModule?.BaseAddress.ToInt64() ?? 0; } catch { }
-                    results.Add((p.MainWindowTitle, p.MainWindowHandle, p.Id, baseAddr));
+
+                    var title = string.IsNullOrWhiteSpace(p.MainWindowTitle) ? p.ProcessName : p.MainWindowTitle;
+                    results.Add((title, p.MainWindowHandle, p.Id, baseAddr));
                 }
             }
+
             // Sort by Title (RIFT1, RIFT2, etc.) for stable slot mapping
-            results.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+            results.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Item1, b.Item1));
             return results;
         }
     }

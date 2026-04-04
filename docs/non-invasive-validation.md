@@ -188,6 +188,105 @@ That discrepancy is now the main non-invasive validation problem to solve.
 
 ---
 
+## Resolution Progress On April 4, 2026
+
+Two concrete issues were confirmed and addressed after the initial non-invasive pass:
+
+### 1. Live low-resolution strip geometry was compacted, not absent
+
+After resizing the live client to `640x360`, the raw client capture still did not match the original `4x4` sampling grid.
+
+However, a larger external top-left capture showed the strip was still present in a compressed form:
+
+- top-left external capture:
+  - `C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\debug-live\client_top_left_64x16.png`
+- observed live compact sample row:
+  - sync / payload colors were present at:
+    - `x=1,3,5,7,9,11,13`
+    - `y=1`
+
+Interpretation:
+
+- the strip was still rendering live
+- but at `640x360` it was landing in a **compact `2x2`-style profile**
+- the original decoder failed because it only sampled the original `native-4x4` centers
+
+### 2. The bridge process finder was missing the real live client executable
+
+The live client process observed on this machine is:
+
+- `rift_x64.exe`
+
+But the decoder bridge originally searched only:
+
+- `RIFT`
+
+That meant the bridge could sit in standby even while the game was live.
+
+### Validated result after the fixes
+
+#### Live helper
+
+Run result observed on **April 4, 2026 1:53:14 PM**:
+
+- tool:
+  - `LeaderLiveInspector`
+- saved resolution:
+  - `640x360`
+- live client:
+  - `640x360`
+- result:
+  - `VALID`
+- matched profile:
+  - `compact-2x2`
+
+Sample points:
+
+- `P0 = 255,0,255`
+- `P1 = 255,0,8`
+- `P2 = 162,32,129`
+- `P3 = 13,34,128`
+- `P4 = 186,118,128`
+- `P5 = 0,0,0`
+- `P6 = 0,0,0`
+
+The same compact live profile was then re-validated at the original failing small window size:
+
+- observed on **April 4, 2026 1:56:29 PM**
+- saved resolution:
+  - `485x309`
+- live client:
+  - `485x309`
+- result:
+  - `VALID`
+- matched profile:
+  - `compact-2x2`
+
+#### Full bridge runtime
+
+The actual decoder executable was then run live and successfully left standby:
+
+- executable:
+  - `C:\Users\mrkoo\OneDrive\Documents\RIFT\Interface\AddOns\Leader\LeaderDecoder\bin\Release\net9.0\LeaderDecoder.exe`
+- observed result:
+  - detected `1/5` RIFT windows
+  - decoded slot 1 continuously from the live client
+
+Representative live bridge line:
+
+- `SLOT[1] RIFT | HP:255 THP:00000 | X:7389.0 Y:871.7 Z:3039.4 | F:0.00`
+
+That bridge validation was repeated after returning the live client to `485x309`, and the bridge still detected `1/5` windows and decoded slot 1 successfully.
+
+### Updated interpretation
+
+- the addon is live
+- the bridge can now detect the real live process on this machine
+- the live decoder path is now working against the active client
+- the low-resolution live client is currently using a **compact render/decode profile**, not the original `native-4x4` sample geometry
+
+---
+
 ## Limits of Current Evidence
 
 - JPEG screenshots are not equivalent to the raw `BitBlt` capture path used by `LeaderDecoder`.

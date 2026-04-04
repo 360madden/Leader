@@ -13,8 +13,14 @@ namespace LeaderDecoder.Services
     /// </summary>
     public class TelemetryService
     {
-        // Centre sample offset within each 4-px block
-        private const int S = 2;
+        private static readonly SampleProfile[] Profiles =
+        {
+            new SampleProfile("native-4x4", new[] { 2, 6, 10, 14, 18, 22, 26 }, 2),
+            new SampleProfile("compact-2x2", new[] { 1, 3, 5, 7, 9, 11, 13 }, 1),
+            new SampleProfile("compact-1x1", new[] { 0, 1, 2, 4, 5, 6, 7 }, 0),
+        };
+
+        private readonly record struct SampleProfile(string Name, int[] SampleXs, int SampleY);
 
         /// <summary>Decodes a telemetry bitmap into a GameState.</summary>
         public GameState Decode(Bitmap bmp)
@@ -43,45 +49,63 @@ namespace LeaderDecoder.Services
 
                 unsafe
                 {
-                    // ── Pixel 0 @ (0+S, S): Sync Magenta check ──────────────
-                    var sync = ReadAt(0 * 4 + S, S);
-                    if (sync.R < 240 || sync.G > 15 || sync.B < 240)
-                        return new GameState { IsValid = false };
+                    foreach (var profile in Profiles)
+                    {
+                        if (!ProfileFits(profile, bmp.Width, bmp.Height))
+                            continue;
 
-                    var state = new GameState { IsValid = true };
+                        var sync = ReadAt(profile.SampleXs[0], profile.SampleY);
+                        if (sync.R < 240 || sync.G > 15 || sync.B < 240)
+                            continue;
 
-                    // ── Pixel 1 @ (4+S, S): Status ──────────────────────────
-                    var p1 = ReadAt(1 * 4 + S, S);
-                    state.PlayerHP  = p1.R;
-                    state.TargetHP  = p1.G;
-                    int flags       = p1.B;
-                    state.IsCombat  = (flags & 0x01) != 0;
-                    state.HasTarget = (flags & 0x02) != 0;
-                    state.IsMoving  = (flags & 0x04) != 0;
-                    state.IsAlive   = (flags & 0x08) != 0;
-                    state.IsMounted = (flags & 0x10) != 0;
+                        var state = new GameState { IsValid = true };
 
-                    // ── Pixels 2-4: Coordinates ──────────────────────────────
-                    state.CoordX = DecodeCoord(ReadAt(2 * 4 + S, S));
-                    state.CoordY = DecodeCoord(ReadAt(3 * 4 + S, S));
-                    state.CoordZ = DecodeCoord(ReadAt(4 * 4 + S, S));
+                        var p1 = ReadAt(profile.SampleXs[1], profile.SampleY);
+                        state.PlayerHP = p1.R;
+                        state.TargetHP = p1.G;
+                        int flags = p1.B;
+                        state.IsCombat = (flags & 0x01) != 0;
+                        state.HasTarget = (flags & 0x02) != 0;
+                        state.IsMoving = (flags & 0x04) != 0;
+                        state.IsAlive = (flags & 0x08) != 0;
+                        state.IsMounted = (flags & 0x10) != 0;
 
-                    // ── Pixel 5 @ (20+S, S): Heading + Zone ──────────────────
-                    var p5 = ReadAt(5 * 4 + S, S);
-                    state.RawFacing = (p5.R + p5.G * 256) / 10000.0f;
-                    state.ZoneHash  = p5.B;
+                        state.CoordX = DecodeCoord(ReadAt(profile.SampleXs[2], profile.SampleY));
+                        state.CoordY = DecodeCoord(ReadAt(profile.SampleXs[3], profile.SampleY));
+                        state.CoordZ = DecodeCoord(ReadAt(profile.SampleXs[4], profile.SampleY));
 
-                    // ── Pixel 6 @ (24+S, S): Target hash ─────────────────────
-                    var p6 = ReadAt(6 * 4 + S, S);
-                    state.TargetHash = $"{p6.R:X2}{p6.G:X2}{p6.B:X2}";
+                        var p5 = ReadAt(profile.SampleXs[5], profile.SampleY);
+                        state.RawFacing = (p5.R + p5.G * 256) / 10000.0f;
+                        state.ZoneHash = p5.B;
 
-                    return state;
+                        var p6 = ReadAt(profile.SampleXs[6], profile.SampleY);
+                        state.TargetHash = $"{p6.R:X2}{p6.G:X2}{p6.B:X2}";
+
+                        return state;
+                    }
+
+                    return new GameState { IsValid = false };
                 }
             }
             finally
             {
                 bmp.UnlockBits(bd);
             }
+        }
+
+        private static bool ProfileFits(SampleProfile profile, int width, int height)
+        {
+            if (profile.SampleY < 0 || profile.SampleY >= height)
+                return false;
+
+            for (int index = 0; index < profile.SampleXs.Length; index++)
+            {
+                int sampleX = profile.SampleXs[index];
+                if (sampleX < 0 || sampleX >= width)
+                    return false;
+            }
+
+            return true;
         }
 
         private static float DecodeCoord(Color c) =>

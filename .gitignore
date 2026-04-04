@@ -22,3 +22,5 @@ desktop.ini
 /tmp/
 *.tmp
 debug-live/
+debug/
+settings.json
