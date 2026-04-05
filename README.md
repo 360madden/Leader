@@ -134,7 +134,7 @@ Use these helper launchers when you want to validate the strip without changing 
 | Helper | Purpose |
 |--------|---------|
 | `run_live_inspector.bat` | Captures the live top-left `56x8` region from visible RIFT windows and reports sync/decode status plus saved/live window geometry context; supports targeting by `--pid`, `--hwnd`, and `--title-contains` |
-| `run_input_probe.bat` | Sends deterministic background key probes to explicit RIFT clients by `--pid`, `--pids`, `--hwnd`, or `--hwnds`, with optional strip inspection before and after the probe |
+| `run_input_probe.bat` | Sends deterministic background key probes to explicit RIFT clients by `--pid`, `--pids`, `--hwnd`, or `--hwnds`, with optional settings-resolved `--action` probes, before/after telemetry classification, and CSV result logging |
 | `run_input_verifier.bat` | Verifies whether configured controller actions such as forward/back/left/right produce detectable strip/coordinate changes, with action-aware before/after classification and CSV result logging |
 | `run_screenshot_inspector.bat` | Inspects the latest RIFT screenshot, or a chosen image path, for the Leader strip |
 

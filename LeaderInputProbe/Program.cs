@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using LeaderDecoder.Models;
 using LeaderDecoder.Services;
 
 namespace LeaderInputProbe;
@@ -7,12 +9,17 @@ internal static class Program
 {
     private const int DefaultHoldMs = 250;
     private const int TapHoldMs = 60;
+    private const float PlanarMovementThreshold = 0.10f;
+    private const float VerticalMovementThreshold = 0.10f;
+    private const string ResultLogName = "input_probe_results.csv";
 
     private static readonly Dictionary<string, InputEngine.RiftKey> KeyMap =
         new(StringComparer.OrdinalIgnoreCase)
         {
+            ["Q"] = InputEngine.RiftKey.Q,
             ["W"] = InputEngine.RiftKey.W,
             ["FORWARD"] = InputEngine.RiftKey.W,
+            ["E"] = InputEngine.RiftKey.E,
             ["A"] = InputEngine.RiftKey.A,
             ["LEFT"] = InputEngine.RiftKey.A,
             ["S"] = InputEngine.RiftKey.S,
@@ -20,6 +27,10 @@ internal static class Program
             ["BACKWARD"] = InputEngine.RiftKey.S,
             ["D"] = InputEngine.RiftKey.D,
             ["RIGHT"] = InputEngine.RiftKey.D,
+            ["STRAFELEFT"] = InputEngine.RiftKey.Q,
+            ["STRAFERIGHT"] = InputEngine.RiftKey.E,
+            ["TURNLEFT"] = InputEngine.RiftKey.A,
+            ["TURNRIGHT"] = InputEngine.RiftKey.D,
             ["F"] = InputEngine.RiftKey.F,
             ["INTERACT"] = InputEngine.RiftKey.F,
             ["ASSIST"] = InputEngine.RiftKey.F,
@@ -40,6 +51,22 @@ internal static class Program
             ["NUM5"] = InputEngine.RiftKey.Num5,
         };
 
+    private static readonly Dictionary<string, Func<BridgeSettings, byte>> ActionMap =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["forward"] = s => s.KeyForward,
+            ["backward"] = s => s.KeyBack,
+            ["back"] = s => s.KeyBack,
+            ["left"] = s => s.KeyLeft,
+            ["strafeleft"] = s => s.KeyLeft,
+            ["right"] = s => s.KeyRight,
+            ["straferight"] = s => s.KeyRight,
+            ["jump"] = s => s.KeyJump,
+            ["mount"] = s => s.KeyMount,
+            ["interact"] = s => s.KeyInteract,
+            ["assist"] = s => s.KeyInteract,
+        };
+
     private static int Main(string[] args)
     {
         var diag = new DiagnosticService();
@@ -58,6 +85,28 @@ internal static class Program
             {
                 PrintUsage();
                 return 0;
+            }
+
+            string repoRoot = FindRepoRoot();
+            string debugDir = Path.Combine(repoRoot, "LeaderInputProbe", "debug");
+            Directory.CreateDirectory(debugDir);
+            string resultsPath = Path.Combine(debugDir, ResultLogName);
+            EnsureResultLog(resultsPath);
+
+            if (!options.ShowHelp && !options.ListOnly && !options.HasProbeIntent)
+            {
+                Console.WriteLine();
+                Console.WriteLine("No probe action was supplied.");
+                PrintUsage();
+                return 1;
+            }
+
+            ProbeTarget? probe = null;
+            string? settingsSource = null;
+            if (options.HasProbeIntent && !TryResolveProbe(options, repoRoot, diag, out probe, out error, out settingsSource))
+            {
+                Console.Error.WriteLine(error);
+                return 1;
             }
 
             Console.Title = "Leader Input Probe";
@@ -85,21 +134,12 @@ internal static class Program
 
             if (options.ListOnly && !options.HasProbeIntent)
             {
+                if (probe is not null)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(BuildIntentSummary(options, probe, 0, options.Tap ? TapHoldMs : options.HoldMs, settingsSource, resultsPath));
+                }
                 return 0;
-            }
-
-            if (!options.HasProbeIntent)
-            {
-                Console.WriteLine();
-                Console.WriteLine("No probe action was supplied.");
-                PrintUsage();
-                return 1;
-            }
-
-            if (!TryResolveKey(options.KeyName!, out var key, out error))
-            {
-                Console.Error.WriteLine(error);
-                return 1;
             }
 
             var selected = SelectWindows(filteredWindows, options, out error);
@@ -114,7 +154,7 @@ internal static class Program
             CaptureEngine? capture = options.Inspect ? new CaptureEngine(diag) : null;
 
             Console.WriteLine();
-            Console.WriteLine(BuildIntentSummary(options, key, selected.Count, holdMs));
+            Console.WriteLine(BuildIntentSummary(options, probe!, selected.Count, holdMs, settingsSource, resultsPath));
 
             for (int index = 0; index < selected.Count; index++)
             {
@@ -123,31 +163,39 @@ internal static class Program
                 Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
                 Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
 
-                if (capture is not null)
-                {
-                    PrintInspection("Before", capture, window.Hwnd);
-                }
-
                 for (int attempt = 0; attempt < options.Repeat; attempt++)
                 {
+                    ProbeCapture? before = capture is not null ? Capture(capture, window.Hwnd) : null;
+                    if (before is not null)
+                    {
+                        PrintInspection("Before", before);
+                    }
+
                     Console.WriteLine(
-                        $"    Probe {attempt + 1}/{options.Repeat}: key={options.KeyName} duration={holdMs}ms");
-                    ExecutePress(input, window.Hwnd, key, holdMs);
+                        $"    Probe {attempt + 1}/{options.Repeat}: {(probe!.SourceType == "action" ? "action" : "key")}={probe.RequestedLabel} duration={holdMs}ms");
+                    ExecutePress(input, window.Hwnd, probe.ScanCode, holdMs);
+
+                    if (capture is not null && options.WaitMs > 0)
+                    {
+                        Thread.Sleep(options.WaitMs);
+                    }
+
+                    ProbeCapture? after = capture is not null ? Capture(capture, window.Hwnd) : null;
+                    if (after is not null)
+                    {
+                        PrintInspection("After", after);
+                    }
+
+                    ProbeResult result = Classify(probe, before, after);
+                    AppendResult(resultsPath, BuildResultRow(window, probe, attempt + 1, holdMs, before, after, result));
+
+                    Console.WriteLine(
+                        $"      Result: {result.Status} | ΔXZ={result.PlanarDelta:F2} | ΔY={result.VerticalDelta:F2} | Δ3D={result.Distance3D:F2} | Notes={result.Notes}");
 
                     if (attempt < options.Repeat - 1 && options.IntervalMs > 0)
                     {
                         Thread.Sleep(options.IntervalMs);
                     }
-                }
-
-                if (capture is not null)
-                {
-                    if (options.WaitMs > 0)
-                    {
-                        Thread.Sleep(options.WaitMs);
-                    }
-
-                    PrintInspection("After", capture, window.Hwnd);
                 }
             }
 
@@ -243,14 +291,16 @@ internal static class Program
         return new List<RiftWindowInfo>();
     }
 
-    private static string BuildIntentSummary(Options options, InputEngine.RiftKey key, int selectedCount, int holdMs)
+    private static string BuildIntentSummary(Options options, ProbeTarget probe, int selectedCount, int holdMs, string? settingsSource, string resultsPath)
     {
         var parts = new List<string>
         {
-            $"Key={key}",
+            $"Probe={probe.SourceType}:{probe.RequestedLabel}",
+            $"ScanCode=0x{probe.ScanCode:X2}",
             options.Tap ? "Mode=Tap" : "Mode=Press",
             $"HoldMs={holdMs}",
-            selectedCount == 1 ? "Target=1 window" : $"Target={selectedCount} windows"
+            selectedCount == 1 ? "Target=1 window" : $"Target={selectedCount} windows",
+            $"Results={resultsPath}"
         };
 
         if (options.Repeat > 1)
@@ -293,41 +343,426 @@ internal static class Program
             parts.Add($"WaitMs={options.WaitMs}");
         }
 
+        if (!string.IsNullOrWhiteSpace(settingsSource))
+        {
+            parts.Add($"Settings={settingsSource}");
+        }
+
         return string.Join(" | ", parts);
     }
 
-    private static void PrintInspection(string label, CaptureEngine capture, IntPtr hwnd)
+    private static void PrintInspection(string label, ProbeCapture capture)
     {
-        using var bmp = capture.CaptureRegion(hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
-        var analysis = StripInspector.Analyze(bmp);
+        Console.WriteLine(
+            $"    {label}: Profile={capture.Analysis.ProfileName} | Strip={capture.Analysis.Width}x{capture.Analysis.Height} | Client={capture.WindowSnapshot.ClientWidth ?? 0}x{capture.WindowSnapshot.ClientHeight ?? 0} | Minimized={capture.WindowSnapshot.IsMinimized}");
 
-        Console.WriteLine($"    {label}:");
-        foreach (string line in StripInspector.FormatStateSummary(analysis.State).Split(Environment.NewLine))
+        foreach (string line in StripInspector.FormatStateSummary(capture.Analysis.State).Split(Environment.NewLine))
         {
             Console.WriteLine($"      {line}");
         }
     }
 
-    private static void ExecutePress(InputEngine input, IntPtr hwnd, InputEngine.RiftKey key, int holdMs)
+    private static ProbeCapture Capture(CaptureEngine capture, IntPtr hwnd)
     {
-        input.SendKeyDown(hwnd, key);
-        Thread.Sleep(holdMs);
-        input.SendKeyUp(hwnd, key);
+        using var bmp = capture.CaptureRegion(hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
+        var analysis = StripInspector.Analyze(bmp);
+        return new ProbeCapture
+        {
+            Analysis = analysis,
+            WindowSnapshot = RiftWindowService.GetWindowSnapshot(hwnd),
+        };
     }
 
-    private static bool TryResolveKey(string value, out InputEngine.RiftKey key, out string? error)
+    private static void ExecutePress(InputEngine input, IntPtr hwnd, byte scanCode, int holdMs)
     {
-        key = default;
-        error = null;
+        input.SendScanCodeDown(hwnd, scanCode);
+        Thread.Sleep(holdMs);
+        input.SendScanCodeUp(hwnd, scanCode);
+    }
 
-        if (KeyMap.TryGetValue(value.Trim(), out key))
+    private static bool TryResolveProbe(Options options, string repoRoot, DiagnosticService diag, out ProbeTarget probe, out string? error, out string? settingsSource)
+    {
+        probe = ProbeTarget.Empty;
+        error = null;
+        settingsSource = null;
+
+        if (!string.IsNullOrWhiteSpace(options.ActionName))
         {
+            string action = options.ActionName.Trim();
+            if (!ActionMap.TryGetValue(action, out var selector))
+            {
+                error = $"Unknown action '{options.ActionName}'. Supported actions: {string.Join(", ", ActionMap.Keys.OrderBy(static k => k, StringComparer.OrdinalIgnoreCase))}";
+                return false;
+            }
+
+            BridgeSettings settings = LoadSettings(repoRoot, options.SettingsPath, diag, out settingsSource);
+            byte scanCode = selector(settings);
+            if (scanCode == 0)
+            {
+                error = $"Action '{options.ActionName}' resolved to scan code 0 in the current settings.";
+                return false;
+            }
+
+            probe = new ProbeTarget
+            {
+                RequestedLabel = action.ToLowerInvariant(),
+                SourceType = "action",
+                ScanCode = scanCode,
+                Kind = ResolveActionKind(action)
+            };
+
             return true;
         }
 
-        error = $"Unknown key '{value}'. Supported keys: {string.Join(", ", KeyMap.Keys.OrderBy(static k => k, StringComparer.OrdinalIgnoreCase))}";
+        if (!string.IsNullOrWhiteSpace(options.KeyName))
+        {
+            string keyName = options.KeyName.Trim();
+            if (!KeyMap.TryGetValue(keyName, out InputEngine.RiftKey key))
+            {
+                error = $"Unknown key '{options.KeyName}'. Supported keys: {string.Join(", ", KeyMap.Keys.OrderBy(static k => k, StringComparer.OrdinalIgnoreCase))}";
+                return false;
+            }
+
+            probe = new ProbeTarget
+            {
+                RequestedLabel = keyName.ToUpperInvariant(),
+                SourceType = "key",
+                ScanCode = (byte)key,
+                Kind = ResolveKeyKind(keyName)
+            };
+
+            return true;
+        }
+
+        error = "No probe target supplied.";
         return false;
     }
+
+    private static ProbeKind ResolveActionKind(string action)
+    {
+        return action.Trim().ToLowerInvariant() switch
+        {
+            "forward" or "backward" or "back" or "left" or "strafeleft" or "right" or "straferight" => ProbeKind.PlanarMovement,
+            "jump" => ProbeKind.VerticalMovement,
+            "mount" or "interact" or "assist" => ProbeKind.StateChange,
+            _ => ProbeKind.Generic,
+        };
+    }
+
+    private static ProbeKind ResolveKeyKind(string key)
+    {
+        return key.Trim().ToUpperInvariant() switch
+        {
+            "W" or "FORWARD" or "A" or "LEFT" or "S" or "BACK" or "BACKWARD" or "D" or "RIGHT" or "Q" or "E" or "STRAFELEFT" or "STRAFERIGHT" or "TURNLEFT" or "TURNRIGHT" => ProbeKind.PlanarMovement,
+            "SPACE" or "SPACEBAR" or "JUMP" => ProbeKind.VerticalMovement,
+            "F" or "INTERACT" or "ASSIST" or "M" or "MOUNT" => ProbeKind.StateChange,
+            _ => ProbeKind.Generic,
+        };
+    }
+
+    private static ProbeResult Classify(ProbeTarget probe, ProbeCapture? before, ProbeCapture? after)
+    {
+        if (before is null || after is null)
+        {
+            return new ProbeResult
+            {
+                Status = "sent_without_inspection",
+                Notes = "probe was sent without before/after telemetry capture"
+            };
+        }
+
+        GameState beforeState = before.Analysis.State;
+        GameState afterState = after.Analysis.State;
+
+        float deltaX = afterState.CoordX - beforeState.CoordX;
+        float deltaY = afterState.CoordY - beforeState.CoordY;
+        float deltaZ = afterState.CoordZ - beforeState.CoordZ;
+        float planarDelta = MathF.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        float distance3D = MathF.Sqrt(planarDelta * planarDelta + deltaY * deltaY);
+
+        if (!beforeState.IsValid || !afterState.IsValid)
+        {
+            return new ProbeResult
+            {
+                Status = "invalid_strip",
+                Notes = !beforeState.IsValid && !afterState.IsValid
+                    ? "telemetry strip invalid before and after the probe"
+                    : !beforeState.IsValid
+                        ? "telemetry strip invalid before the probe"
+                        : "telemetry strip invalid after the probe",
+                PlanarDelta = planarDelta,
+                VerticalDelta = MathF.Abs(deltaY),
+                Distance3D = distance3D,
+            };
+        }
+
+        bool movingChanged = beforeState.IsMoving != afterState.IsMoving;
+        bool mountedChanged = beforeState.IsMounted != afterState.IsMounted;
+        bool targetChanged = beforeState.HasTarget != afterState.HasTarget || beforeState.TargetHP != afterState.TargetHP;
+        bool hpChanged = beforeState.PlayerHP != afterState.PlayerHP;
+        bool zoneChanged = beforeState.ZoneHash != afterState.ZoneHash;
+        bool tagChanged = !string.Equals(beforeState.PlayerTag, afterState.PlayerTag, StringComparison.Ordinal);
+
+        return probe.Kind switch
+        {
+            ProbeKind.PlanarMovement => (planarDelta >= PlanarMovementThreshold || distance3D >= PlanarMovementThreshold || movingChanged)
+                ? new ProbeResult
+                {
+                    Status = "accepted_movement",
+                    Notes = "position or moving-state changed after the probe",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                }
+                : new ProbeResult
+                {
+                    Status = "ignored_movement",
+                    Notes = "no coordinate or moving-state change detected",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                },
+
+            ProbeKind.VerticalMovement => (MathF.Abs(deltaY) >= VerticalMovementThreshold || distance3D >= VerticalMovementThreshold || movingChanged)
+                ? new ProbeResult
+                {
+                    Status = "accepted_movement",
+                    Notes = "vertical position or moving-state changed after the probe",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                }
+                : new ProbeResult
+                {
+                    Status = "ignored_movement",
+                    Notes = "no vertical or moving-state change detected",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                },
+
+            ProbeKind.StateChange => (mountedChanged || targetChanged || hpChanged || zoneChanged || tagChanged || movingChanged)
+                ? new ProbeResult
+                {
+                    Status = "accepted_state_change",
+                    Notes = "telemetry flags, target, health, or identity changed after the probe",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                }
+                : new ProbeResult
+                {
+                    Status = "no_visible_change",
+                    Notes = "no visible telemetry change detected after the probe",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                },
+
+            _ => (distance3D >= PlanarMovementThreshold || movingChanged || mountedChanged || targetChanged || hpChanged || zoneChanged || tagChanged)
+                ? new ProbeResult
+                {
+                    Status = "accepted_state_change",
+                    Notes = "some visible telemetry change followed the probe",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                }
+                : new ProbeResult
+                {
+                    Status = "no_visible_change",
+                    Notes = "no visible telemetry change detected after the probe",
+                    PlanarDelta = planarDelta,
+                    VerticalDelta = MathF.Abs(deltaY),
+                    Distance3D = distance3D,
+                },
+        };
+    }
+
+    private static ProbeLogRow BuildResultRow(
+        RiftWindowInfo window,
+        ProbeTarget probe,
+        int attempt,
+        int holdMs,
+        ProbeCapture? before,
+        ProbeCapture? after,
+        ProbeResult result)
+    {
+        RiftWindowSnapshot snapshot = after?.WindowSnapshot ?? before?.WindowSnapshot ?? RiftWindowService.GetWindowSnapshot(window.Hwnd);
+        GameState? beforeState = before?.Analysis.State;
+        GameState? afterState = after?.Analysis.State;
+
+        return new ProbeLogRow
+        {
+            Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
+            Window = RiftWindowService.FormatIdentity(window),
+            ProcessId = window.ProcessId,
+            Hwnd = RiftWindowService.FormatHwnd(window.Hwnd),
+            Probe = probe.RequestedLabel,
+            SourceType = probe.SourceType,
+            ScanCode = $"0x{probe.ScanCode:X2}",
+            Attempt = attempt,
+            HoldMs = holdMs,
+            ClientWidth = snapshot.ClientWidth,
+            ClientHeight = snapshot.ClientHeight,
+            IsMinimized = snapshot.IsMinimized,
+            BeforeProfile = before?.Analysis.ProfileName,
+            AfterProfile = after?.Analysis.ProfileName,
+            BeforeValid = beforeState?.IsValid,
+            AfterValid = afterState?.IsValid,
+            BeforeX = beforeState?.CoordX,
+            BeforeY = beforeState?.CoordY,
+            BeforeZ = beforeState?.CoordZ,
+            AfterX = afterState?.CoordX,
+            AfterY = afterState?.CoordY,
+            AfterZ = afterState?.CoordZ,
+            PlanarDelta = result.PlanarDelta,
+            VerticalDelta = result.VerticalDelta,
+            Distance3D = result.Distance3D,
+            BeforeMoving = beforeState?.IsMoving,
+            AfterMoving = afterState?.IsMoving,
+            BeforeMounted = beforeState?.IsMounted,
+            AfterMounted = afterState?.IsMounted,
+            BeforeHasTarget = beforeState?.HasTarget,
+            AfterHasTarget = afterState?.HasTarget,
+            BeforeHP = beforeState?.PlayerHP,
+            AfterHP = afterState?.PlayerHP,
+            BeforeTargetHP = beforeState?.TargetHP,
+            AfterTargetHP = afterState?.TargetHP,
+            BeforeFacing = beforeState?.RawFacing,
+            AfterFacing = afterState?.RawFacing,
+            BeforeZoneHash = beforeState?.ZoneHash,
+            AfterZoneHash = afterState?.ZoneHash,
+            BeforePlayerTag = beforeState?.PlayerTag,
+            AfterPlayerTag = afterState?.PlayerTag,
+            Result = result.Status,
+            Notes = result.Notes,
+        };
+    }
+
+    private static void AppendResult(string path, ProbeLogRow row)
+    {
+        string line = string.Join(",",
+            Csv(row.Timestamp),
+            Csv(row.Window),
+            Csv(row.ProcessId.ToString(CultureInfo.InvariantCulture)),
+            Csv(row.Hwnd),
+            Csv(row.Probe),
+            Csv(row.SourceType),
+            Csv(row.ScanCode),
+            Csv(row.Attempt.ToString(CultureInfo.InvariantCulture)),
+            Csv(row.HoldMs.ToString(CultureInfo.InvariantCulture)),
+            Csv(NullableInt(row.ClientWidth)),
+            Csv(NullableInt(row.ClientHeight)),
+            Csv(Bool(row.IsMinimized)),
+            Csv(row.BeforeProfile),
+            Csv(row.AfterProfile),
+            Csv(NullableBool(row.BeforeValid)),
+            Csv(NullableBool(row.AfterValid)),
+            Csv(NullableFloat(row.BeforeX)),
+            Csv(NullableFloat(row.BeforeY)),
+            Csv(NullableFloat(row.BeforeZ)),
+            Csv(NullableFloat(row.AfterX)),
+            Csv(NullableFloat(row.AfterY)),
+            Csv(NullableFloat(row.AfterZ)),
+            Csv(NullableFloat(row.PlanarDelta)),
+            Csv(NullableFloat(row.VerticalDelta)),
+            Csv(NullableFloat(row.Distance3D)),
+            Csv(NullableBool(row.BeforeMoving)),
+            Csv(NullableBool(row.AfterMoving)),
+            Csv(NullableBool(row.BeforeMounted)),
+            Csv(NullableBool(row.AfterMounted)),
+            Csv(NullableBool(row.BeforeHasTarget)),
+            Csv(NullableBool(row.AfterHasTarget)),
+            Csv(NullableInt(row.BeforeHP)),
+            Csv(NullableInt(row.AfterHP)),
+            Csv(NullableInt(row.BeforeTargetHP)),
+            Csv(NullableInt(row.AfterTargetHP)),
+            Csv(NullableFloat(row.BeforeFacing)),
+            Csv(NullableFloat(row.AfterFacing)),
+            Csv(NullableByte(row.BeforeZoneHash)),
+            Csv(NullableByte(row.AfterZoneHash)),
+            Csv(row.BeforePlayerTag),
+            Csv(row.AfterPlayerTag),
+            Csv(row.Result),
+            Csv(row.Notes));
+
+        File.AppendAllText(path, line + Environment.NewLine);
+    }
+
+    private static void EnsureResultLog(string path)
+    {
+        if (!File.Exists(path))
+        {
+            File.WriteAllText(path, "Timestamp,Window,ProcessId,Hwnd,Probe,SourceType,ScanCode,Attempt,HoldMs,ClientWidth,ClientHeight,IsMinimized,BeforeProfile,AfterProfile,BeforeValid,AfterValid,BeforeX,BeforeY,BeforeZ,AfterX,AfterY,AfterZ,PlanarDelta,VerticalDelta,Distance3D,BeforeMoving,AfterMoving,BeforeMounted,AfterMounted,BeforeHasTarget,AfterHasTarget,BeforeHP,AfterHP,BeforeTargetHP,AfterTargetHP,BeforeFacing,AfterFacing,BeforeZoneHash,AfterZoneHash,BeforePlayerTag,AfterPlayerTag,Result,Notes\n");
+        }
+    }
+
+    private static BridgeSettings LoadSettings(string repoRoot, string? explicitPath, DiagnosticService diag, out string source)
+    {
+        string path = string.IsNullOrWhiteSpace(explicitPath)
+            ? Path.Combine(repoRoot, "LeaderDecoder", "settings.json")
+            : ResolvePath(repoRoot, explicitPath);
+
+        if (!File.Exists(path))
+        {
+            source = "defaults (settings.json not found)";
+            return new BridgeSettings();
+        }
+
+        try
+        {
+            source = path;
+            return JsonSerializer.Deserialize<BridgeSettings>(File.ReadAllText(path)) ?? new BridgeSettings();
+        }
+        catch (Exception ex)
+        {
+            diag.LogToolFailure(
+                source: "LeaderInputProbe",
+                operation: "LoadSettings",
+                detail: "Failed to load bridge settings, falling back to defaults.",
+                context: path,
+                ex: ex,
+                dedupeKey: $"input-probe-settings|{path}",
+                throttleSeconds: 60.0);
+            source = $"defaults (failed to load {path})";
+            return new BridgeSettings();
+        }
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(Environment.CurrentDirectory);
+        while (dir is not null)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, "LeaderDecoder"))
+                && Directory.Exists(Path.Combine(dir.FullName, "LeaderInputProbe")))
+            {
+                return dir.FullName;
+            }
+
+            dir = dir.Parent;
+        }
+
+        return Environment.CurrentDirectory;
+    }
+
+    private static string ResolvePath(string root, string path) =>
+        Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(root, path));
+
+    private static string Csv(string? value)
+    {
+        string text = value ?? string.Empty;
+        return text.Contains('"') || text.Contains(',') || text.Contains('\n') || text.Contains('\r')
+            ? $"\"{text.Replace("\"", "\"\"")}\""
+            : text;
+    }
+
+    private static string NullableFloat(float? value) => value?.ToString("F3", CultureInfo.InvariantCulture) ?? string.Empty;
+    private static string NullableInt(int? value) => value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    private static string NullableByte(byte? value) => value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    private static string NullableBool(bool? value) => value.HasValue ? (value.Value ? "true" : "false") : string.Empty;
+    private static string Bool(bool value) => value ? "true" : "false";
 
     private static bool TryParseOptions(string[] args, out Options options, out string? error)
     {
@@ -445,6 +880,24 @@ internal static class Program
                     options.KeyName = keyName;
                     break;
 
+                case "--action":
+                    if (!TryReadString(args, ref i, out string? actionName, out error))
+                    {
+                        return false;
+                    }
+
+                    options.ActionName = actionName;
+                    break;
+
+                case "--settings":
+                    if (!TryReadString(args, ref i, out string? settingsPath, out error))
+                    {
+                        return false;
+                    }
+
+                    options.SettingsPath = settingsPath;
+                    break;
+
                 case "--pid":
                     if (!TryReadInt(args, ref i, out int pidValue, out error))
                     {
@@ -533,15 +986,21 @@ internal static class Program
             return false;
         }
 
+        if (!string.IsNullOrWhiteSpace(options.KeyName) && !string.IsNullOrWhiteSpace(options.ActionName))
+        {
+            error = "--key and --action cannot be combined.";
+            return false;
+        }
+
         if (options.Tap && options.HoldMs != DefaultHoldMs)
         {
             error = "--tap cannot be combined with --hold-ms.";
             return false;
         }
 
-        if (!options.ListOnly && string.IsNullOrWhiteSpace(options.KeyName))
+        if (!options.ShowHelp && !options.ListOnly && !options.HasProbeIntent)
         {
-            error = "--key is required unless you only use --list.";
+            error = "--key or --action is required unless you only use --list.";
             return false;
         }
 
@@ -587,8 +1046,9 @@ internal static class Program
         Console.WriteLine("Usage:");
         Console.WriteLine("  LeaderInputProbe.exe --list");
         Console.WriteLine("  LeaderInputProbe.exe --pid 127928 --key W --hold-ms 3000 --inspect");
+        Console.WriteLine("  LeaderInputProbe.exe --pid 127928 --action forward --inspect");
         Console.WriteLine("  LeaderInputProbe.exe --hwnd 0x351350 --key SPACE --tap");
-        Console.WriteLine("  LeaderInputProbe.exe --pids 127928,133228 --key F --tap");
+        Console.WriteLine("  LeaderInputProbe.exe --pids 127928,133228 --action interact --tap --settings ..\\LeaderDecoder\\settings.json");
         Console.WriteLine("  LeaderInputProbe.exe --title-contains RIFT --index 2 --key A --hold-ms 500");
         Console.WriteLine();
         Console.WriteLine("Options:");
@@ -600,7 +1060,9 @@ internal static class Program
         Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
         Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
         Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
-        Console.WriteLine("  --key NAME             Required probe key: W, A, S, D, F, M, SPACE, 1-5");
+        Console.WriteLine("  --key NAME             Required probe key: Q, W, E, A, S, D, F, M, SPACE, 1-5");
+        Console.WriteLine("  --action NAME          Probe action resolved from settings.json: forward, backward, left, right, jump, mount, interact");
+        Console.WriteLine("  --settings PATH        Optional settings.json used with --action");
         Console.WriteLine("  --tap                  Use a 60 ms press instead of --hold-ms");
         Console.WriteLine("  --hold-ms N            Press duration in milliseconds (default: 250)");
         Console.WriteLine("  --repeat N             Repeat the probe N times (default: 1)");
@@ -608,6 +1070,85 @@ internal static class Program
         Console.WriteLine("  --inspect              Capture and decode the telemetry strip before and after the probe");
         Console.WriteLine("  --wait-ms N            Delay before post-probe inspection (default: 250)");
         Console.WriteLine("  --help                 Show this help");
+    }
+
+    private enum ProbeKind
+    {
+        Generic,
+        PlanarMovement,
+        VerticalMovement,
+        StateChange,
+    }
+
+    private sealed class ProbeTarget
+    {
+        public static ProbeTarget Empty { get; } = new();
+        public string RequestedLabel { get; init; } = string.Empty;
+        public string SourceType { get; init; } = string.Empty;
+        public byte ScanCode { get; init; }
+        public ProbeKind Kind { get; init; }
+    }
+
+    private sealed class ProbeCapture
+    {
+        public required StripAnalysis Analysis { get; init; }
+        public required RiftWindowSnapshot WindowSnapshot { get; init; }
+    }
+
+    private sealed class ProbeResult
+    {
+        public string Status { get; init; } = string.Empty;
+        public string Notes { get; init; } = string.Empty;
+        public float PlanarDelta { get; init; }
+        public float VerticalDelta { get; init; }
+        public float Distance3D { get; init; }
+    }
+
+    private sealed class ProbeLogRow
+    {
+        public required string Timestamp { get; init; }
+        public required string Window { get; init; }
+        public required int ProcessId { get; init; }
+        public required string Hwnd { get; init; }
+        public required string Probe { get; init; }
+        public required string SourceType { get; init; }
+        public required string ScanCode { get; init; }
+        public required int Attempt { get; init; }
+        public required int HoldMs { get; init; }
+        public int? ClientWidth { get; init; }
+        public int? ClientHeight { get; init; }
+        public required bool IsMinimized { get; init; }
+        public string? BeforeProfile { get; init; }
+        public string? AfterProfile { get; init; }
+        public bool? BeforeValid { get; init; }
+        public bool? AfterValid { get; init; }
+        public float? BeforeX { get; init; }
+        public float? BeforeY { get; init; }
+        public float? BeforeZ { get; init; }
+        public float? AfterX { get; init; }
+        public float? AfterY { get; init; }
+        public float? AfterZ { get; init; }
+        public float? PlanarDelta { get; init; }
+        public float? VerticalDelta { get; init; }
+        public float? Distance3D { get; init; }
+        public bool? BeforeMoving { get; init; }
+        public bool? AfterMoving { get; init; }
+        public bool? BeforeMounted { get; init; }
+        public bool? AfterMounted { get; init; }
+        public bool? BeforeHasTarget { get; init; }
+        public bool? AfterHasTarget { get; init; }
+        public int? BeforeHP { get; init; }
+        public int? AfterHP { get; init; }
+        public int? BeforeTargetHP { get; init; }
+        public int? AfterTargetHP { get; init; }
+        public float? BeforeFacing { get; init; }
+        public float? AfterFacing { get; init; }
+        public byte? BeforeZoneHash { get; init; }
+        public byte? AfterZoneHash { get; init; }
+        public string? BeforePlayerTag { get; init; }
+        public string? AfterPlayerTag { get; init; }
+        public required string Result { get; init; }
+        public required string Notes { get; init; }
     }
 
     private sealed class Options
@@ -628,6 +1169,8 @@ internal static class Program
         public IntPtr[]? Hwnds { get; set; }
         public string? TitleContains { get; set; }
         public string? KeyName { get; set; }
-        public bool HasProbeIntent => !string.IsNullOrWhiteSpace(KeyName);
+        public string? ActionName { get; set; }
+        public string? SettingsPath { get; set; }
+        public bool HasProbeIntent => !string.IsNullOrWhiteSpace(KeyName) || !string.IsNullOrWhiteSpace(ActionName);
     }
 }
