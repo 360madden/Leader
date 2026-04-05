@@ -15,6 +15,15 @@ local layoutState = {
     clientWidth = 0,
     pixelSize = 0,
 }
+local renderState = {
+    initialized = false,
+    frameSeq = 0,
+    currentPixelWrites = 0,
+    lastPixelWrites = 0,
+    frameComplete = false,
+    layoutSyncCount = 0,
+    lastLayoutChanged = false,
+}
 local config = {
     pixelSize = 8,
     anchorX = 0,
@@ -98,6 +107,8 @@ local function ApplyLayout(force)
     layoutState.anchorFrame = anchorFrame
     layoutState.clientWidth = clientWidth
     layoutState.pixelSize = pixelSize
+    renderState.layoutSyncCount = (tonumber(renderState.layoutSyncCount) or 0) + 1
+    renderState.lastLayoutChanged = true
     return true
 end
 
@@ -119,7 +130,14 @@ function Renderer.Init()
         pixels[i] = p
     end
 
+    renderState.initialized = true
     Renderer.SyncLayout(true)
+end
+
+function Renderer.BeginFrame()
+    renderState.frameSeq = (tonumber(renderState.frameSeq) or 0) + 1
+    renderState.currentPixelWrites = 0
+    renderState.frameComplete = false
 end
 
 --- Updates the color of a specific telemetry pixel.
@@ -131,11 +149,35 @@ function Renderer.SetPixel(index, r, g, b)
     local pixelIdx = index + 1
     if pixels[pixelIdx] then
         pixels[pixelIdx]:SetBackgroundColor(r, g, b, 1)
+        renderState.currentPixelWrites = (tonumber(renderState.currentPixelWrites) or 0) + 1
     end
 end
 
+function Renderer.EndFrame()
+    renderState.lastPixelWrites = tonumber(renderState.currentPixelWrites) or 0
+    renderState.frameComplete = renderState.lastPixelWrites >= 7
+end
+
 function Renderer.SyncLayout(force)
-    return ApplyLayout(force and true or false)
+    local changed = ApplyLayout(force and true or false)
+    if not changed then
+        renderState.lastLayoutChanged = false
+    end
+    return changed
+end
+
+function Renderer.GetHealth()
+    return {
+        initialized = renderState.initialized and true or false,
+        frameSeq = tonumber(renderState.frameSeq) or 0,
+        currentPixelWrites = tonumber(renderState.currentPixelWrites) or 0,
+        lastPixelWrites = tonumber(renderState.lastPixelWrites) or 0,
+        frameComplete = renderState.frameComplete and true or false,
+        layoutSyncCount = tonumber(renderState.layoutSyncCount) or 0,
+        lastLayoutChanged = renderState.lastLayoutChanged and true or false,
+        clientWidth = tonumber(layoutState.clientWidth) or 0,
+        pixelSize = tonumber(layoutState.pixelSize) or 0,
+    }
 end
 
 Private.Renderer = Renderer

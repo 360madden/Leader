@@ -205,6 +205,25 @@ The export snapshot includes:
 
 This is intended for offline/helper-app consumption from SavedVariables, not live file output from the addon.
 
+### Addon-Side Renderer Health
+
+The addon now also tracks strip-write health in `LeaderConfig.renderHealth` so you can tell whether the Lua renderer actually completed its 7-pixel write cycle and when layout resyncs occurred.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader render` | Print the current renderer-health summary |
+
+Renderer health keeps:
+
+- last render frame sequence
+- last pixel-write count
+- whether the frame completed the expected strip write
+- layout resync count
+- current pixel size / client width snapshot
+- bounded history for incomplete frames and layout changes
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:

@@ -47,6 +47,7 @@ local function PrintHelp()
     print("  " .. prefix .. " status           — Show runtime heartbeat status")
     print("  " .. prefix .. " transition       — Show loading/transition status")
     print("  " .. prefix .. " export           — Show debug export snapshot status")
+    print("  " .. prefix .. " render           — Show renderer health status")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
@@ -132,6 +133,10 @@ local function HandleSlashCommand(_, params)
         if Private.DebugExport and Private.DebugExport.PrintStatus then
             Private.DebugExport.PrintStatus()
         end
+    elseif command == "render" then
+        if Private.RenderHealth and Private.RenderHealth.PrintStatus then
+            Private.RenderHealth.PrintStatus()
+        end
     elseif command == "dump" then
         HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "help" or command == "" then
@@ -195,15 +200,25 @@ local function UpdateTelemetry()
     if state.lastUpdate < state.updateInterval then return end
     state.lastUpdate = 0
 
+    if Private.Renderer and Private.Renderer.BeginFrame then
+        Private.Renderer.BeginFrame()
+    end
+
     -- 1. Gather raw game data (guarded: returns nil during loading screens)
     local packet = Private.Gatherer.GetPacket()
     if not packet then
         ClearTelemetryFrame()
+        if Private.Renderer and Private.Renderer.EndFrame then
+            Private.Renderer.EndFrame()
+        end
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordNoPacket then
             Private.RuntimeStatus.RecordNoPacket(true, IsDumpEnabled())
         end
         if Private.TransitionState and Private.TransitionState.RecordNoPacket then
             Private.TransitionState.RecordNoPacket()
+        end
+        if Private.RenderHealth and Private.RenderHealth.Sync then
+            Private.RenderHealth.Sync()
         end
         if Private.DebugExport and Private.DebugExport.SyncNoPacket then
             Private.DebugExport.SyncNoPacket()
@@ -241,6 +256,10 @@ local function UpdateTelemetry()
     -- 9. Update in-game Diagnostic UI (only if visible)
     Private.DiagUI.Update(packet)
 
+    if Private.Renderer and Private.Renderer.EndFrame then
+        Private.Renderer.EndFrame()
+    end
+
     -- 10. Persist recent telemetry samples for helper-app consumption via SavedVariables.
     Private.DumpLog.Record(packet)
 
@@ -250,6 +269,10 @@ local function UpdateTelemetry()
 
     if Private.TransitionState and Private.TransitionState.RecordPacket then
         Private.TransitionState.RecordPacket(packet)
+    end
+
+    if Private.RenderHealth and Private.RenderHealth.Sync then
+        Private.RenderHealth.Sync()
     end
 
     if Private.DebugExport and Private.DebugExport.Sync then
@@ -268,6 +291,9 @@ local function Init()
     end
     if Private.DebugExport and Private.DebugExport.Init then
         Private.DebugExport.Init()
+    end
+    if Private.RenderHealth and Private.RenderHealth.Init then
+        Private.RenderHealth.Init()
     end
     Private.Renderer.Init()
     Private.DiagUI.Create()
