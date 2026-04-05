@@ -583,27 +583,44 @@ internal static class Program
 
     private static void PrintUsage()
     {
+        WriteColored(ConsoleColor.Cyan, "Leader Input Verifier — validate keys against live telemetry");
         Console.WriteLine();
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  LeaderInputVerifier.exe --action forward --pid 127928");
-        Console.WriteLine("  LeaderInputVerifier.exe --movement-sequence forward,backward,left,right --all");
-        Console.WriteLine("  LeaderInputVerifier.exe --hwnd 0x351350 --action interact --settings ..\\LeaderDecoder\\settings.json");
+
+        WriteColored(ConsoleColor.Yellow, "Usage:");
+        WriteColored(ConsoleColor.White, "  LeaderInputVerifier.exe --action forward --pid 127928");
+        WriteColored(ConsoleColor.White, "  LeaderInputVerifier.exe --movement-sequence forward,backward,left,right --all");
+        WriteColored(ConsoleColor.White, "  LeaderInputVerifier.exe --hwnd 0x351350 --action interact --settings ..\\LeaderDecoder\\settings.json");
         Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit");
-        Console.WriteLine("  --index N              Target the Nth filtered RIFT window");
-        Console.WriteLine("  --all                  Verify all filtered RIFT windows");
-        Console.WriteLine("  --pid N                Filter to a specific process id");
-        Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
-        Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
-        Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
-        Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
-        Console.WriteLine("  --action NAME          Single action: forward, backward, left, right, jump, mount, interact");
-        Console.WriteLine("  --movement-sequence    Comma-separated action sequence, default: forward,backward,left,right");
-        Console.WriteLine("  --settings PATH        Optional settings.json path");
-        Console.WriteLine("  --hold-ms N            Key hold duration in milliseconds (default: 120)");
-        Console.WriteLine("  --wait-ms N            Wait after each action before the after-capture (default: 250)");
-        Console.WriteLine("  --help                 Show this help");
+
+        WriteColored(ConsoleColor.Yellow, "Target selection:");
+        WriteColored(ConsoleColor.White, "  --list                 List detected or filtered RIFT windows and exit");
+        WriteColored(ConsoleColor.White, "  --index N              Target the Nth filtered RIFT window");
+        WriteColored(ConsoleColor.White, "  --all                  Verify all filtered RIFT windows");
+        WriteColored(ConsoleColor.White, "  --pid N                Filter to a specific process id");
+        WriteColored(ConsoleColor.White, "  --pids N1,N2           Filter to multiple process ids in the given order");
+        WriteColored(ConsoleColor.White, "  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
+        WriteColored(ConsoleColor.White, "  --hwnds A,B            Filter to multiple HWNDs in the given order");
+        WriteColored(ConsoleColor.White, "  --title-contains TEXT  Filter to window titles containing TEXT");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Verification intent:");
+        WriteColored(ConsoleColor.White, "  --action NAME          Single action: forward, backward, left, right, jump, mount, interact");
+        WriteColored(ConsoleColor.White, "  --movement-sequence    Comma-separated action sequence, default: forward,backward,left,right");
+        WriteColored(ConsoleColor.White, "  --settings PATH        Optional settings.json path");
+        WriteColored(ConsoleColor.White, "  --hold-ms N            Key hold duration in milliseconds (default: 120)");
+        WriteColored(ConsoleColor.White, "  --wait-ms N            Wait after each action before the after-capture (default: 250)");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "General:");
+        WriteColored(ConsoleColor.White, "  --help                 Show this help");
+    }
+
+    private static void WriteColored(ConsoleColor color, string text)
+    {
+        var previous = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.WriteLine(text);
+        Console.ForegroundColor = previous;
     }
 
     private sealed class Options

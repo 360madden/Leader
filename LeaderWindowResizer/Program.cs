@@ -684,36 +684,59 @@ internal static class Program
             && height > 0;
     }
 
+    private static void WriteColored(ConsoleColor color, string text)
+    {
+        var previous = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.WriteLine(text);
+        Console.ForegroundColor = previous;
+    }
+
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  LeaderWindowResizer.exe --preset 640x360 --inspect");
-        Console.WriteLine("  LeaderWindowResizer.exe --size 320x180 --left 45 --top 108");
-        Console.WriteLine("  LeaderWindowResizer.exe --scale 0.5 --inspect");
-        Console.WriteLine("  LeaderWindowResizer.exe --pid 127928 --preset 640x360 --inspect");
-        Console.WriteLine("  LeaderWindowResizer.exe --pids 127928,128104 --preset 640x360 --inspect");
-        Console.WriteLine("  LeaderWindowResizer.exe --hwnd 0x123456 --size 485x309");
-        Console.WriteLine("  LeaderWindowResizer.exe --hwnds 0x351350,0x123456 --preset 485x309 --inspect");
-        Console.WriteLine("  LeaderWindowResizer.exe --all --preset 640x360 --left 45 --top 108 --step-x 24 --step-y 24");
+        WriteColored(ConsoleColor.Cyan, "Leader Window Resizer — resize first, verify immediately");
         Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit if no resize target is given");
-        Console.WriteLine("  --index N              Target the Nth filtered RIFT window (default: 1)");
-        Console.WriteLine("  --all                  Resize all filtered RIFT windows");
-        Console.WriteLine("  --pid N                Filter to a specific process id");
-        Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
-        Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
-        Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
-        Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
-        Console.WriteLine("  --preset NAME          Presets: 320x180, 485x309, 640x360, 1280x720, 180p, 360p, 720p");
-        Console.WriteLine("  --size WxH             Custom client resolution");
-        Console.WriteLine("  --width N --height N   Custom client resolution");
-        Console.WriteLine("  --scale F              Dynamic scale from current live client size, e.g. 0.5");
-        Console.WriteLine("  --left N --top N       Absolute window position for the first resized window");
-        Console.WriteLine("  --step-x N --step-y N  Per-window position offset when resizing multiple windows");
-        Console.WriteLine("  --inspect              Run Leader strip decode immediately after resizing");
-        Console.WriteLine("  --wait-ms N            Delay before post-resize inspection (default: 1000)");
-        Console.WriteLine("  --help                 Show this help");
+
+        WriteColored(ConsoleColor.Yellow, "Usage:");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --preset 640x360 --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --size 320x180 --left 45 --top 108");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --scale 0.5 --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --pid 127928 --preset 640x360 --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --pids 127928,128104 --preset 640x360 --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --hwnd 0x123456 --size 485x309");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --hwnds 0x351350,0x123456 --preset 485x309 --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderWindowResizer.exe --all --preset 640x360 --left 45 --top 108 --step-x 24 --step-y 24");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Target selection:");
+        WriteColored(ConsoleColor.White, "  --list                 List detected or filtered RIFT windows and exit if no resize target is given");
+        WriteColored(ConsoleColor.White, "  --index N              Target the Nth filtered RIFT window (default: 1)");
+        WriteColored(ConsoleColor.White, "  --all                  Resize all filtered RIFT windows");
+        WriteColored(ConsoleColor.White, "  --pid N                Filter to a specific process id");
+        WriteColored(ConsoleColor.White, "  --pids N1,N2           Filter to multiple process ids in the given order");
+        WriteColored(ConsoleColor.White, "  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
+        WriteColored(ConsoleColor.White, "  --hwnds A,B            Filter to multiple HWNDs in the given order");
+        WriteColored(ConsoleColor.White, "  --title-contains TEXT  Filter to window titles containing TEXT");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Sizing:");
+        WriteColored(ConsoleColor.White, "  --preset NAME          Presets: 320x180, 485x309, 640x360, 1280x720, 180p, 360p, 720p");
+        WriteColored(ConsoleColor.White, "  --size WxH             Custom client resolution");
+        WriteColored(ConsoleColor.White, "  --width N --height N   Custom client resolution");
+        WriteColored(ConsoleColor.White, "  --scale F              Dynamic scale from current live client size, e.g. 0.5");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Positioning & verification:");
+        WriteColored(ConsoleColor.White, "  --left N --top N       Absolute window position for the first resized window");
+        WriteColored(ConsoleColor.White, "  --step-x N --step-y N  Per-window position offset when resizing multiple windows");
+        WriteColored(ConsoleColor.White, "  --inspect              Run Leader strip decode immediately after resizing");
+        WriteColored(ConsoleColor.White, "  --wait-ms N            Delay before post-resize inspection (default: 1000)");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "General:");
+        WriteColored(ConsoleColor.White, "  --help                 Show this help");
+        Console.WriteLine();
+        WriteColored(ConsoleColor.DarkGray, "Best practice: resize with --inspect whenever possible so you can catch strip alignment issues immediately.");
     }
 
     private sealed class Options

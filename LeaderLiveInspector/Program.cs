@@ -724,29 +724,49 @@ namespace LeaderLiveInspector
             return true;
         }
 
+        private static void WriteColored(ConsoleColor color, string text)
+        {
+            var previous = Console.ForegroundColor;
+            Console.ForegroundColor = color;
+            Console.WriteLine(text);
+            Console.ForegroundColor = previous;
+        }
+
         private static void PrintUsage()
         {
-            Console.WriteLine("Usage:");
-            Console.WriteLine("  LeaderLiveInspector.exe --list");
-            Console.WriteLine("  LeaderLiveInspector.exe --pid 127928");
-            Console.WriteLine("  LeaderLiveInspector.exe --pids 127928,128104 --watch");
-            Console.WriteLine("  LeaderLiveInspector.exe --pids 127928,128104 --watch --watch-count 5 --interval-ms 500");
-            Console.WriteLine("  LeaderLiveInspector.exe --hwnd 0x123456 --save-dir C:\\temp");
-            Console.WriteLine("  LeaderLiveInspector.exe --hwnds 0x351350,0x123456 --save-dir C:\\temp");
-            Console.WriteLine("  LeaderLiveInspector.exe --title-contains RIFT --watch");
+            WriteColored(ConsoleColor.Cyan, "Leader Live Inspector — strip capture and decode");
             Console.WriteLine();
-            Console.WriteLine("Options:");
-            Console.WriteLine("  --list                 List matching RIFT windows");
-            Console.WriteLine("  --watch                Refresh repeatedly");
-            Console.WriteLine("  --watch-count N        Limit watch mode to N refreshes (0 = unlimited)");
-            Console.WriteLine("  --interval-ms N        Refresh interval in milliseconds (default: 1000)");
-            Console.WriteLine("  --save-dir PATH        Save captured strips to PATH");
-            Console.WriteLine("  --pid N                Filter to a specific process id");
-            Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
-            Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
-            Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
-            Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
-            Console.WriteLine("  --help                 Show this help");
+
+            WriteColored(ConsoleColor.Yellow, "Usage:");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --list");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --pid 127928");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --pids 127928,128104 --watch");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --pids 127928,128104 --watch --watch-count 5 --interval-ms 500");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --hwnd 0x123456 --save-dir C:\\temp");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --hwnds 0x351350,0x123456 --save-dir C:\\temp");
+            WriteColored(ConsoleColor.White, "  LeaderLiveInspector.exe --title-contains RIFT --watch");
+            Console.WriteLine();
+
+            WriteColored(ConsoleColor.Yellow, "Target selection:");
+            WriteColored(ConsoleColor.White, "  --list                 List matching RIFT windows");
+            WriteColored(ConsoleColor.White, "  --pid N                Filter to a specific process id");
+            WriteColored(ConsoleColor.White, "  --pids N1,N2           Filter to multiple process ids in the given order");
+            WriteColored(ConsoleColor.White, "  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
+            WriteColored(ConsoleColor.White, "  --hwnds A,B            Filter to multiple HWNDs in the given order");
+            WriteColored(ConsoleColor.White, "  --title-contains TEXT  Filter to window titles containing TEXT");
+            Console.WriteLine();
+
+            WriteColored(ConsoleColor.Yellow, "Capture mode:");
+            WriteColored(ConsoleColor.White, "  --watch                Refresh repeatedly");
+            WriteColored(ConsoleColor.White, "  --watch-count N        Limit watch mode to N refreshes (0 = unlimited)");
+            WriteColored(ConsoleColor.White, "  --interval-ms N        Refresh interval in milliseconds (default: 1000)");
+            WriteColored(ConsoleColor.White, "  --save-dir PATH        Save captured strips to PATH");
+            Console.WriteLine();
+
+            WriteColored(ConsoleColor.Yellow, "General:");
+            WriteColored(ConsoleColor.White, "  --help                 Show this help");
+            Console.WriteLine();
+            WriteColored(ConsoleColor.DarkGray, "Best practice: use --save-dir when you need artifacts, and prefer PID/ HWND selection over title matching when possible.");
         }
 
         private static string SanitizeFileName(string value)

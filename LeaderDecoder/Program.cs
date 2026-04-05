@@ -616,21 +616,49 @@ namespace LeaderDecoder
 
         private static void PrintUsage()
         {
-            Console.WriteLine("Usage:");
-            Console.WriteLine("  LeaderDecoder.exe --list [--pid N | --pids N1,N2 | --hwnd 0xHEX | --hwnds 0xA,0xB | --title-contains TEXT]");
-            Console.WriteLine("  LeaderDecoder.exe --sim");
-            Console.WriteLine("  LeaderDecoder.exe --test");
             Console.WriteLine();
-            Console.WriteLine("Options:");
-            Console.WriteLine("  --list                 List detected/filtered RIFT windows and exit");
-            Console.WriteLine("  --pid N                Target a specific process id");
-            Console.WriteLine("  --pids N1,N2           Target multiple process ids in the given order");
-            Console.WriteLine("  --hwnd HEX             Target a specific HWND, e.g. 0x351350");
-            Console.WriteLine("  --hwnds A,B            Target multiple HWNDs in the given order");
-            Console.WriteLine("  --title-contains TEXT  Filter windows by title substring");
-            Console.WriteLine("  --sim                  Run simulation mode");
-            Console.WriteLine("  --test                 Run encode/decode roundtrip tests");
-            Console.WriteLine("  --help                 Show this help");
+            WriteHeader("USAGE");
+            WriteUsage("LeaderDecoder.exe --list [--pid N | --pids N1,N2 | --hwnd 0xHEX | --hwnds 0xA,0xB | --title-contains TEXT]");
+            WriteUsage("LeaderDecoder.exe --sim");
+            WriteUsage("LeaderDecoder.exe --test");
+            Console.WriteLine();
+            WriteHeader("OPTIONS");
+            WriteOption("--list", "List detected/filtered RIFT windows and exit");
+            WriteOption("--pid N", "Target a specific process id");
+            WriteOption("--pids N1,N2", "Target multiple process ids in the given order");
+            WriteOption("--hwnd HEX", "Target a specific HWND, e.g. 0x351350");
+            WriteOption("--hwnds A,B", "Target multiple HWNDs in the given order");
+            WriteOption("--title-contains TEXT", "Filter windows by title substring");
+            WriteOption("--sim", "Run simulation mode");
+            WriteOption("--test", "Run encode/decode roundtrip tests");
+            WriteOption("--help", "Show this help");
+        }
+
+        private static void WriteHeader(string text)
+        {
+            var prev = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine(text);
+            Console.ForegroundColor = prev;
+        }
+
+        private static void WriteUsage(string text)
+        {
+            var prev = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("  ");
+            Console.WriteLine(text);
+            Console.ForegroundColor = prev;
+        }
+
+        private static void WriteOption(string flag, string description)
+        {
+            var prev = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write($"  {flag.PadRight(24)}");
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.WriteLine(description);
+            Console.ForegroundColor = prev;
         }
 
         private sealed class BridgeOptions

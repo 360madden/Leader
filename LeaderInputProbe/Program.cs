@@ -1267,37 +1267,58 @@ internal static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  LeaderInputProbe.exe --list");
-        Console.WriteLine("  LeaderInputProbe.exe --summary");
-        Console.WriteLine("  LeaderInputProbe.exe --summary --results .\\LeaderInputProbe\\debug\\input_probe_results.csv");
-        Console.WriteLine("  LeaderInputProbe.exe --pid 127928 --key W --hold-ms 3000 --inspect");
-        Console.WriteLine("  LeaderInputProbe.exe --pid 127928 --action forward --inspect");
-        Console.WriteLine("  LeaderInputProbe.exe --hwnd 0x351350 --key SPACE --tap");
-        Console.WriteLine("  LeaderInputProbe.exe --pids 127928,133228 --action interact --tap --settings ..\\LeaderDecoder\\settings.json");
-        Console.WriteLine("  LeaderInputProbe.exe --title-contains RIFT --index 2 --key A --hold-ms 500");
+        WriteColored(ConsoleColor.Cyan, "Leader Input Probe — deterministic background key probes");
         Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit if no probe action is given");
-        Console.WriteLine("  --summary              Summarize an existing input_probe_results.csv without sending input");
-        Console.WriteLine("  --index N              Target the Nth filtered RIFT window");
-        Console.WriteLine("  --all                  Probe all filtered RIFT windows");
-        Console.WriteLine("  --pid N                Filter to a specific process id");
-        Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
-        Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
-        Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
-        Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
-        Console.WriteLine("  --key NAME             Required probe key: Q, W, E, A, S, D, F, M, SPACE, 1-5");
-        Console.WriteLine("  --action NAME          Probe action resolved from settings.json: forward, backward, left, right, jump, mount, interact");
-        Console.WriteLine("  --settings PATH        Optional settings.json used with --action");
-        Console.WriteLine("  --results PATH         Optional results CSV path used with --summary");
-        Console.WriteLine("  --tap                  Use a 60 ms press instead of --hold-ms");
-        Console.WriteLine("  --hold-ms N            Press duration in milliseconds (default: 250)");
-        Console.WriteLine("  --repeat N             Repeat the probe N times (default: 1)");
-        Console.WriteLine("  --interval-ms N        Delay between repeated probes (default: 250)");
-        Console.WriteLine("  --inspect              Capture and decode the telemetry strip before and after the probe");
-        Console.WriteLine("  --wait-ms N            Delay before post-probe inspection (default: 250)");
-        Console.WriteLine("  --help                 Show this help");
+
+        WriteColored(ConsoleColor.Yellow, "Usage:");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --list");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --summary");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --summary --results .\\LeaderInputProbe\\debug\\input_probe_results.csv");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --pid 127928 --key W --hold-ms 3000 --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --pid 127928 --action forward --inspect");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --hwnd 0x351350 --key SPACE --tap");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --pids 127928,133228 --action interact --tap --settings ..\\LeaderDecoder\\settings.json");
+        WriteColored(ConsoleColor.White, "  LeaderInputProbe.exe --title-contains RIFT --index 2 --key A --hold-ms 500");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Target selection:");
+        WriteColored(ConsoleColor.White, "  --list                 List detected or filtered RIFT windows and exit if no probe action is given");
+        WriteColored(ConsoleColor.White, "  --index N              Target the Nth filtered RIFT window");
+        WriteColored(ConsoleColor.White, "  --all                  Probe all filtered RIFT windows");
+        WriteColored(ConsoleColor.White, "  --pid N                Filter to a specific process id");
+        WriteColored(ConsoleColor.White, "  --pids N1,N2           Filter to multiple process ids in the given order");
+        WriteColored(ConsoleColor.White, "  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
+        WriteColored(ConsoleColor.White, "  --hwnds A,B            Filter to multiple HWNDs in the given order");
+        WriteColored(ConsoleColor.White, "  --title-contains TEXT  Filter to window titles containing TEXT");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Probe intent:");
+        WriteColored(ConsoleColor.White, "  --key NAME             Required probe key: Q, W, E, A, S, D, F, M, SPACE, 1-5");
+        WriteColored(ConsoleColor.White, "  --action NAME          Probe action resolved from settings.json: forward, backward, left, right, jump, mount, interact");
+        WriteColored(ConsoleColor.White, "  --settings PATH        Optional settings.json used with --action");
+        WriteColored(ConsoleColor.White, "  --tap                  Use a 60 ms press instead of --hold-ms");
+        WriteColored(ConsoleColor.White, "  --hold-ms N            Press duration in milliseconds (default: 250)");
+        WriteColored(ConsoleColor.White, "  --repeat N             Repeat the probe N times (default: 1)");
+        WriteColored(ConsoleColor.White, "  --interval-ms N        Delay between repeated probes (default: 250)");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "Capture & output:");
+        WriteColored(ConsoleColor.White, "  --inspect              Capture and decode the telemetry strip before and after the probe");
+        WriteColored(ConsoleColor.White, "  --wait-ms N            Delay before post-probe inspection (default: 250)");
+        WriteColored(ConsoleColor.White, "  --summary              Summarize an existing input_probe_results.csv without sending input");
+        WriteColored(ConsoleColor.White, "  --results PATH         Optional results CSV path used with --summary");
+        Console.WriteLine();
+
+        WriteColored(ConsoleColor.Yellow, "General:");
+        WriteColored(ConsoleColor.White, "  --help                 Show this help");
+    }
+
+    private static void WriteColored(ConsoleColor color, string text)
+    {
+        var previous = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.WriteLine(text);
+        Console.ForegroundColor = previous;
     }
 
     private enum ProbeKind

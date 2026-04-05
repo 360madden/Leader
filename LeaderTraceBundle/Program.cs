@@ -501,15 +501,42 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine();
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  LeaderTraceBundle.exe");
-        Console.WriteLine("  LeaderTraceBundle.exe --name nightly --output-dir trace-bundles --max-images 20");
+        WriteHeader("USAGE");
+        WriteUsage("LeaderTraceBundle.exe");
+        WriteUsage("LeaderTraceBundle.exe --name nightly --output-dir trace-bundles --max-images 20");
         Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --output-dir PATH  Directory where the timestamped bundle folder is created");
-        Console.WriteLine("  --name NAME        Bundle name suffix used in the timestamped folder name");
-        Console.WriteLine("  --max-images N     Max number of recent images to copy from debug folders (default: 20)");
-        Console.WriteLine("  --help             Show this help");
+        WriteHeader("OPTIONS");
+        WriteOption("--output-dir PATH", "Directory where the timestamped bundle folder is created");
+        WriteOption("--name NAME", "Bundle name suffix used in the timestamped folder name");
+        WriteOption("--max-images N", "Max recent images to copy from debug folders (default: 20)");
+        WriteOption("--help", "Show this help");
+    }
+
+    private static void WriteHeader(string text)
+    {
+        var prev = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine(text);
+        Console.ForegroundColor = prev;
+    }
+
+    private static void WriteUsage(string text)
+    {
+        var prev = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write("  ");
+        Console.WriteLine(text);
+        Console.ForegroundColor = prev;
+    }
+
+    private static void WriteOption(string flag, string description)
+    {
+        var prev = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"  {flag.PadRight(22)}");
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.WriteLine(description);
+        Console.ForegroundColor = prev;
     }
 
     private sealed class Options
