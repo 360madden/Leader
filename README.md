@@ -153,6 +153,23 @@ The addon can persist a small rolling telemetry buffer into its SavedVariables f
 
 Buffered samples are stored in the character SavedVariables file alongside `LeaderConfig` and are intended for offline/helper-app correlation, not live file IO from the addon. Use `/leader dump toggle` to switch buffering on or off.
 
+### Addon-Side Runtime Status
+
+The addon now also maintains a lightweight runtime heartbeat in `LeaderConfig.runtime` so helper tools can tell the difference between:
+
+- addon loaded but waiting for valid packets
+- renderer alive but no recent telemetry
+- slash command fallback / registration differences
+- repeated nil-packet streaks during loading or transition periods
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader status` | Print the current runtime heartbeat summary |
+
+Runtime status keeps a bounded event log plus fields such as the current player tag, zone hash, last valid packet time, nil-packet streak, dump state, and active slash command.
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:

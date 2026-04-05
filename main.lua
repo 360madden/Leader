@@ -44,6 +44,7 @@ local function PrintHelp()
     local prefix = FormatSlashCommands()
     print("🛰️ Leader Commands:")
     print("  " .. prefix .. " diag             — Toggle telemetry audit overlay")
+    print("  " .. prefix .. " status           — Show runtime heartbeat status")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
@@ -62,18 +63,30 @@ local function HandleDumpCommand(params)
     elseif subcommand == "on" then
         Private.DumpLog.SetEnabled(true)
         print("🛰️ Leader: dump logging ON")
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+            Private.RuntimeStatus.RecordCommand("dump", "on")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "off" then
         Private.DumpLog.SetEnabled(false)
         print("🛰️ Leader: dump logging OFF")
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+            Private.RuntimeStatus.RecordCommand("dump", "off")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "toggle" then
         local enabled = Private.DumpLog.Toggle()
         print("🛰️ Leader: dump logging " .. (enabled and "ON" or "OFF"))
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+            Private.RuntimeStatus.RecordCommand("dump", enabled and "toggle_on" or "toggle_off")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "clear" then
         Private.DumpLog.Clear()
         print("🛰️ Leader: dump entries cleared")
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+            Private.RuntimeStatus.RecordCommand("dump", "clear")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "interval" then
         local seconds = tonumber(remainder)
@@ -84,6 +97,9 @@ local function HandleDumpCommand(params)
 
         Private.DumpLog.SetIntervalSeconds(seconds)
         print(string.format("🛰️ Leader: dump interval set to %.2fs", seconds))
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+            Private.RuntimeStatus.RecordCommand("dump", "interval")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "help" then
         Private.DumpLog.PrintHelp(FormatSlashCommands())
@@ -99,6 +115,13 @@ local function HandleSlashCommand(_, params)
 
     if command == "diag" then
         Private.DiagUI.Toggle()
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+            Private.RuntimeStatus.RecordCommand("diag", "toggle")
+        end
+    elseif command == "status" then
+        if Private.RuntimeStatus and Private.RuntimeStatus.PrintStatus then
+            Private.RuntimeStatus.PrintStatus()
+        end
     elseif command == "dump" then
         HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "help" or command == "" then
@@ -140,6 +163,15 @@ local function ClearTelemetryFrame()
     end
 end
 
+local function IsDumpEnabled()
+    if Private.DumpLog and Private.DumpLog.GetStatus then
+        local status = Private.DumpLog.GetStatus()
+        return status and status.enabled and true or false
+    end
+
+    return false
+end
+
 --- Orchestrates a single telemetry update.
 local function UpdateTelemetry()
     Private.Renderer.SyncLayout()
@@ -157,6 +189,9 @@ local function UpdateTelemetry()
     local packet = Private.Gatherer.GetPacket()
     if not packet then
         ClearTelemetryFrame()
+        if Private.RuntimeStatus and Private.RuntimeStatus.RecordNoPacket then
+            Private.RuntimeStatus.RecordNoPacket(true, IsDumpEnabled())
+        end
         return
     end
 
@@ -192,11 +227,18 @@ local function UpdateTelemetry()
 
     -- 10. Persist recent telemetry samples for helper-app consumption via SavedVariables.
     Private.DumpLog.Record(packet)
+
+    if Private.RuntimeStatus and Private.RuntimeStatus.RecordPacket then
+        Private.RuntimeStatus.RecordPacket(packet, IsDumpEnabled())
+    end
 end
 
 --- Initializes the telemetry engine.
 local function Init()
     LeaderConfig = LeaderConfig or {}
+    if Private.RuntimeStatus and Private.RuntimeStatus.InitSession then
+        Private.RuntimeStatus.InitSession()
+    end
     Private.Renderer.Init()
     Private.DiagUI.Create()
     if Private.DumpLog and Private.DumpLog.GetStatus then
@@ -206,6 +248,10 @@ local function Init()
     local leaderRegistered = RegisterSlashCommand("leader")
     local leaderBridgeRegistered = RegisterSlashCommand("leaderbridge")
     Private.PrimarySlashCommand = registeredSlashCommands[1]
+
+    if Private.RuntimeStatus and Private.RuntimeStatus.RecordSlashRegistration then
+        Private.RuntimeStatus.RecordSlashRegistration(Private.PrimarySlashCommand, leaderRegistered, leaderBridgeRegistered)
+    end
 
     Command.Event.Attach(Event.System.Update.Begin, UpdateTelemetry, "LeaderUpdate")
 
