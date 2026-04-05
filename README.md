@@ -282,6 +282,25 @@ The session timeline records:
 - dump / badge command actions
 - render-frame failures and layout resyncs
 
+### Addon-Side Session Statistics
+
+The addon now keeps a rolling session summary in `LeaderConfig.sessionStats` for quick post-run analysis without replaying raw packet dumps.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader stats` | Print the current session statistics summary |
+
+The session stats track:
+
+- valid-packet and no-packet tick counts
+- packet recovery count
+- zone-change count
+- render failures and layout resync counts
+- command usage counts for dump / badge / diag
+- last seen player tag and zone hash
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:

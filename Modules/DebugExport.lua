@@ -54,6 +54,9 @@ local function EnsureConfig()
     if type(export.timeline) ~= "table" then
         export.timeline = {}
     end
+    if type(export.sessionStats) ~= "table" then
+        export.sessionStats = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -140,6 +143,31 @@ local function UpdateFromTimeline(export)
     }
 end
 
+local function UpdateFromSessionStats(export)
+    if not (Private.SessionStats and Private.SessionStats.GetStatus) then
+        return
+    end
+
+    local stats = Private.SessionStats.GetStatus()
+    export.sessionStats = {
+        sessionStartedAt = stats.sessionStartedAt,
+        lastUpdatedAt = stats.lastUpdatedAt,
+        validPacketCount = stats.validPacketCount,
+        noPacketTickCount = stats.noPacketTickCount,
+        packetRecoveryCount = stats.packetRecoveryCount,
+        zoneChangeCount = stats.zoneChangeCount,
+        renderIncompleteCount = stats.renderIncompleteCount,
+        layoutResyncCount = stats.layoutResyncCount,
+        commandCount = stats.commandCount,
+        dumpCommandCount = stats.dumpCommandCount,
+        badgeCommandCount = stats.badgeCommandCount,
+        diagToggleCount = stats.diagToggleCount,
+        lastCommand = stats.lastCommand,
+        lastPlayerTag = stats.lastPlayerTag,
+        lastZoneHash = stats.lastZoneHash,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -184,6 +212,7 @@ function DebugExport.Sync(packet)
     UpdateFromTransition(export)
     UpdateFromCapabilities(export)
     UpdateFromTimeline(export)
+    UpdateFromSessionStats(export)
     UpdateFromDump(export)
 end
 
@@ -196,6 +225,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromTransition(export)
     UpdateFromCapabilities(export)
     UpdateFromTimeline(export)
+    UpdateFromSessionStats(export)
     UpdateFromDump(export)
 end
 

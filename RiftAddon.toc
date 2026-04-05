@@ -20,6 +20,7 @@ RunOnStartup = {
   "Modules/RenderHealth.lua",
   "Modules/CapabilityStatus.lua",
   "Modules/SessionTimeline.lua",
+  "Modules/SessionStats.lua",
   "Modules/StatusBadge.lua",
   "Modules/DiagnosticUI.lua",
   "main.lua"

@@ -50,6 +50,7 @@ local function PrintHelp()
     print("  " .. prefix .. " render           — Show renderer health status")
     print("  " .. prefix .. " capabilities     — Show addon capability status")
     print("  " .. prefix .. " timeline         — Show session timeline status")
+    print("  " .. prefix .. " stats            — Show session statistics")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -72,6 +73,9 @@ local function HandleDumpCommand(params)
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "on")
         end
+        if Private.SessionStats and Private.SessionStats.RecordCommand then
+            Private.SessionStats.RecordCommand("dump", "on")
+        end
         if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
             Private.SessionTimeline.RecordCommand("dump", "on")
         end
@@ -81,6 +85,9 @@ local function HandleDumpCommand(params)
         print("🛰️ Leader: dump logging OFF")
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "off")
+        end
+        if Private.SessionStats and Private.SessionStats.RecordCommand then
+            Private.SessionStats.RecordCommand("dump", "off")
         end
         if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
             Private.SessionTimeline.RecordCommand("dump", "off")
@@ -92,6 +99,9 @@ local function HandleDumpCommand(params)
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", enabled and "toggle_on" or "toggle_off")
         end
+        if Private.SessionStats and Private.SessionStats.RecordCommand then
+            Private.SessionStats.RecordCommand("dump", enabled and "toggle_on" or "toggle_off")
+        end
         if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
             Private.SessionTimeline.RecordCommand("dump", enabled and "toggle_on" or "toggle_off")
         end
@@ -101,6 +111,9 @@ local function HandleDumpCommand(params)
         print("🛰️ Leader: dump entries cleared")
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "clear")
+        end
+        if Private.SessionStats and Private.SessionStats.RecordCommand then
+            Private.SessionStats.RecordCommand("dump", "clear")
         end
         if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
             Private.SessionTimeline.RecordCommand("dump", "clear")
@@ -117,6 +130,9 @@ local function HandleDumpCommand(params)
         print(string.format("🛰️ Leader: dump interval set to %.2fs", seconds))
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "interval")
+        end
+        if Private.SessionStats and Private.SessionStats.RecordCommand then
+            Private.SessionStats.RecordCommand("dump", "interval")
         end
         if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
             Private.SessionTimeline.RecordCommand("dump", "interval")
@@ -157,6 +173,9 @@ local function HandleBadgeCommand(params)
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
         Private.RuntimeStatus.RecordCommand("badge", subcommand ~= "" and subcommand or "toggle")
     end
+    if Private.SessionStats and Private.SessionStats.RecordCommand then
+        Private.SessionStats.RecordCommand("badge", subcommand ~= "" and subcommand or "toggle")
+    end
     if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
         Private.SessionTimeline.RecordCommand("badge", subcommand ~= "" and subcommand or "toggle")
     end
@@ -170,6 +189,9 @@ local function HandleSlashCommand(_, params)
         Private.DiagUI.Toggle()
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("diag", "toggle")
+        end
+        if Private.SessionStats and Private.SessionStats.RecordCommand then
+            Private.SessionStats.RecordCommand("diag", "toggle")
         end
     elseif command == "status" then
         if Private.RuntimeStatus and Private.RuntimeStatus.PrintStatus then
@@ -194,6 +216,10 @@ local function HandleSlashCommand(_, params)
     elseif command == "timeline" then
         if Private.SessionTimeline and Private.SessionTimeline.PrintStatus then
             Private.SessionTimeline.PrintStatus()
+        end
+    elseif command == "stats" then
+        if Private.SessionStats and Private.SessionStats.PrintStatus then
+            Private.SessionStats.PrintStatus()
         end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
@@ -274,6 +300,9 @@ local function UpdateTelemetry()
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordNoPacket then
             Private.RuntimeStatus.RecordNoPacket(true, IsDumpEnabled())
         end
+        if Private.SessionStats and Private.SessionStats.RecordNoPacket then
+            Private.SessionStats.RecordNoPacket()
+        end
         if Private.SessionTimeline and Private.SessionTimeline.RecordNoPacket and Private.RuntimeStatus and Private.RuntimeStatus.GetStatus then
             Private.SessionTimeline.RecordNoPacket(Private.RuntimeStatus.GetStatus().nilPacketStreak)
         end
@@ -285,6 +314,9 @@ local function UpdateTelemetry()
         end
         if Private.SessionTimeline and Private.SessionTimeline.RecordRender then
             Private.SessionTimeline.RecordRender()
+        end
+        if Private.SessionStats and Private.SessionStats.RecordRender then
+            Private.SessionStats.RecordRender()
         end
         if Private.DebugExport and Private.DebugExport.SyncNoPacket then
             Private.DebugExport.SyncNoPacket()
@@ -335,6 +367,9 @@ local function UpdateTelemetry()
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordPacket then
         Private.RuntimeStatus.RecordPacket(packet, IsDumpEnabled())
     end
+    if Private.SessionStats and Private.SessionStats.RecordPacket then
+        Private.SessionStats.RecordPacket(packet)
+    end
 
     if Private.TransitionState and Private.TransitionState.RecordPacket then
         Private.TransitionState.RecordPacket(packet)
@@ -348,6 +383,9 @@ local function UpdateTelemetry()
     end
     if Private.SessionTimeline and Private.SessionTimeline.RecordRender then
         Private.SessionTimeline.RecordRender()
+    end
+    if Private.SessionStats and Private.SessionStats.RecordRender then
+        Private.SessionStats.RecordRender()
     end
 
     if Private.DebugExport and Private.DebugExport.Sync then
@@ -367,6 +405,9 @@ local function Init()
     end
     if Private.SessionTimeline and Private.SessionTimeline.Init then
         Private.SessionTimeline.Init()
+    end
+    if Private.SessionStats and Private.SessionStats.Init then
+        Private.SessionStats.Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()

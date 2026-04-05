@@ -85,7 +85,14 @@ local function AppendEntry(kind, message, details)
 end
 
 function SessionTimeline.Init()
-    EnsureConfig()
+    local timeline = EnsureConfig()
+    timeline.entries = {}
+    timeline.lastSeq = 0
+    timeline.lastZoneHash = 0
+    timeline.lastUpdatedAt = 0
+    timelineState.noPacketActive = false
+    timelineState.lastRenderFrameSeqLogged = 0
+    timelineState.lastLayoutSyncCountLogged = 0
     AppendEntry("session", "timeline initialized")
 end
 
