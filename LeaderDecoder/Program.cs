@@ -46,8 +46,13 @@ namespace LeaderDecoder
                 return;
             }
 
-            Console.Clear();
-            Console.Title = "🛰️ Leader: Multi-Agent Bridge v1.2";
+            if (options.Help)
+            {
+                PrintUsage();
+                return;
+            }
+
+            TryPrepareConsole();
             var filter = BuildFilter(options);
 
             // 🧱 Bootstrapping (Hardening Agent)
@@ -102,9 +107,8 @@ namespace LeaderDecoder
                 int displayTargetCount = GetDisplayTargetCount(options, lockedRoles);
 
                 // 1. Global Input Handling
-                if (Console.KeyAvailable)
+                if (TryReadConsoleKey(out ConsoleKey? key))
                 {
-                    var key = Console.ReadKey(true).Key;
                     if (key == ConsoleKey.T)
                     {
                         toggleFollowRequested = true;
@@ -659,6 +663,51 @@ namespace LeaderDecoder
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine(description);
             Console.ForegroundColor = prev;
+        }
+
+        private static void TryPrepareConsole()
+        {
+            try
+            {
+                Console.Clear();
+            }
+            catch (IOException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            try
+            {
+                Console.Title = "🛰️ Leader: Multi-Agent Bridge v1.2";
+            }
+            catch (IOException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        private static bool TryReadConsoleKey(out ConsoleKey? key)
+        {
+            key = null;
+
+            try
+            {
+                if (!Console.KeyAvailable)
+                {
+                    return false;
+                }
+
+                key = Console.ReadKey(true).Key;
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         private sealed class BridgeOptions
