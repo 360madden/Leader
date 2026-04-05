@@ -35,6 +35,8 @@ namespace LeaderDecoder.Services
 
         private const float PredictionSeconds = 0.20f;
         private const float StopRadiusFloor = 0.60f;
+        private const float HoldGoalRadius = 1.10f;
+        private const float HoldLateralRadius = 0.55f;
         private const float ForwardDeadzone = 0.35f;
         private const float LateralDeadzone = 0.35f;
         private const float BackwardDeadzone = 0.45f;
@@ -141,6 +143,9 @@ namespace LeaderDecoder.Services
             Vector2 error = goal - followerPosition;
             float goalDistance = error.Length();
             float stopRadius = Math.Max(StopRadiusFloor, desiredTrailDistance * 0.35f);
+            float holdRadius = Math.Max(stopRadius, HoldGoalRadius);
+            bool withinLeaderBand = leaderDistance <= _settings.FollowDistanceMax;
+            SlotState state = _slotStates[slot];
 
             if (goalDistance <= stopRadius)
             {
@@ -149,9 +154,15 @@ namespace LeaderDecoder.Services
                 return;
             }
 
-            SlotState state = _slotStates[slot];
             if (!state.HasForwardBasis)
             {
+                if (withinLeaderBand && goalDistance <= holdRadius)
+                {
+                    ResetProgress(slot);
+                    HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
+                    return;
+                }
+
                 ResetProgress(slot);
                 TryStartForwardCalibration(slot, followerPosition, hwnd);
                 HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
@@ -164,6 +175,13 @@ namespace LeaderDecoder.Services
             float eForward = Vector2.Dot(error, h);
             float eLateral = Vector2.Dot(error, l);
             float theta = MathF.Atan2(eLateral, eForward);
+
+            if (withinLeaderBand && goalDistance <= holdRadius && Math.Abs(eLateral) <= HoldLateralRadius)
+            {
+                ResetProgress(slot);
+                HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
+                return;
+            }
 
             ProgressState progress = UpdateProgress(slot, goalDistance);
             if (progress == ProgressState.Recalibrate)
