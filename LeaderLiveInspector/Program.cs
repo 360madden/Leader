@@ -2,15 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using LeaderDecoder.Models;
 using LeaderDecoder.Services;
 
 namespace LeaderLiveInspector
 {
     internal static class Program
     {
+        private const int DefaultWatchIntervalMs = 1000;
+        private const string SampleLogName = "live_inspector_samples.csv";
+        private const string EventLogName = "live_inspector_events.csv";
+
         private static int Main(string[] args)
         {
             var diag = new DiagnosticService();
@@ -31,6 +37,14 @@ namespace LeaderLiveInspector
                     return 0;
                 }
 
+                string repoRoot = FindRepoRoot();
+                string debugDir = Path.Combine(repoRoot, "LeaderLiveInspector", "debug");
+                Directory.CreateDirectory(debugDir);
+                string sampleLogPath = Path.Combine(debugDir, SampleLogName);
+                string eventLogPath = Path.Combine(debugDir, EventLogName);
+                EnsureSampleLog(sampleLogPath);
+                EnsureEventLog(eventLogPath);
+
                 Console.Title = "Leader Live Inspector";
                 Console.WriteLine("============================================================");
                 Console.WriteLine("Leader Live Inspector (non-invasive)");
@@ -38,12 +52,15 @@ namespace LeaderLiveInspector
                 Console.WriteLine("============================================================");
 
                 var capture = new CaptureEngine(diag);
+                var previousSnapshots = new Dictionary<string, InspectionSnapshot>(StringComparer.OrdinalIgnoreCase);
+                int? previousFilteredCount = null;
+                int iteration = 0;
 
                 do
                 {
                     if (options.Watch)
                     {
-                        Console.Clear();
+                        TryClearConsole();
                         Console.WriteLine("============================================================");
                         Console.WriteLine("Leader Live Inspector (non-invasive)");
                         Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
@@ -74,6 +91,23 @@ namespace LeaderLiveInspector
                         return 0;
                     }
 
+                    if (options.Watch && previousFilteredCount.HasValue && previousFilteredCount.Value != filteredWindows.Count)
+                    {
+                        AppendEvent(eventLogPath, new LiveInspectorEventRow
+                        {
+                            Timestamp = DateTime.Now,
+                            Window = "watch",
+                            ProcessId = null,
+                            Hwnd = string.Empty,
+                            EventType = "filtered_count_changed",
+                            Before = previousFilteredCount.Value.ToString(CultureInfo.InvariantCulture),
+                            After = filteredWindows.Count.ToString(CultureInfo.InvariantCulture),
+                            Details = $"Filtered window count changed from {previousFilteredCount.Value} to {filteredWindows.Count}.",
+                        });
+                    }
+
+                    var currentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                     for (int index = 0; index < filteredWindows.Count; index++)
                     {
                         var window = filteredWindows[index];
@@ -86,6 +120,43 @@ namespace LeaderLiveInspector
 
                         using var bmp = capture.CaptureRegion(window.Hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
                         var analysis = StripInspector.Analyze(bmp);
+                        var inspection = new InspectionSnapshot
+                        {
+                            Window = window,
+                            Snapshot = snapshot,
+                            Analysis = analysis,
+                            SavedResolutionMatchesLiveClient = savedConfig?.ResolutionX is int savedX && savedConfig.ResolutionY is int savedY
+                                ? snapshot.ClientWidth == savedX && snapshot.ClientHeight == savedY
+                                : null
+                        };
+
+                        currentKeys.Add(BuildSnapshotKey(window));
+                        AppendSample(sampleLogPath, inspection);
+
+                        if (options.Watch)
+                        {
+                            string key = BuildSnapshotKey(window);
+                            if (previousSnapshots.TryGetValue(key, out InspectionSnapshot? previous))
+                            {
+                                LogSnapshotEvents(eventLogPath, previous, inspection);
+                            }
+                            else
+                            {
+                                AppendEvent(eventLogPath, new LiveInspectorEventRow
+                                {
+                                    Timestamp = DateTime.Now,
+                                    Window = RiftWindowService.FormatIdentity(window),
+                                    ProcessId = window.ProcessId,
+                                    Hwnd = RiftWindowService.FormatHwnd(window.Hwnd),
+                                    EventType = "window_appeared",
+                                    Before = string.Empty,
+                                    After = analysis.State.IsValid ? "valid" : "invalid",
+                                    Details = "Window appeared in the filtered watch set.",
+                                });
+                            }
+
+                            previousSnapshots[key] = inspection;
+                        }
 
                         Console.WriteLine(StripInspector.FormatStateSummary(analysis.State));
                         Console.WriteLine(StripInspector.FormatSampleTable(analysis));
@@ -104,9 +175,38 @@ namespace LeaderLiveInspector
 
                     if (options.Watch)
                     {
+                        var missingKeys = previousSnapshots.Keys.Where(key => !currentKeys.Contains(key)).ToList();
+                        foreach (string missingKey in missingKeys)
+                        {
+                            InspectionSnapshot previous = previousSnapshots[missingKey];
+                            AppendEvent(eventLogPath, new LiveInspectorEventRow
+                            {
+                                Timestamp = DateTime.Now,
+                                Window = RiftWindowService.FormatIdentity(previous.Window),
+                                ProcessId = previous.Window.ProcessId,
+                                Hwnd = RiftWindowService.FormatHwnd(previous.Window.Hwnd),
+                                EventType = "window_disappeared",
+                                Before = previous.Analysis.State.IsValid ? "valid" : "invalid",
+                                After = string.Empty,
+                                Details = "Window disappeared from the filtered watch set.",
+                            });
+                            previousSnapshots.Remove(missingKey);
+                        }
+                    }
+
+                    previousFilteredCount = filteredWindows.Count;
+                    iteration++;
+
+                    if (options.Watch)
+                    {
                         Console.WriteLine();
-                        Console.WriteLine("Press Ctrl+C to stop. Refreshing in 1000 ms...");
-                        Thread.Sleep(1000);
+                        if (options.WatchCount > 0 && iteration >= options.WatchCount)
+                        {
+                            break;
+                        }
+
+                        Console.WriteLine($"Press Ctrl+C to stop. Refreshing in {options.IntervalMs} ms...");
+                        Thread.Sleep(options.IntervalMs);
                     }
                 }
                 while (options.Watch);
@@ -200,6 +300,23 @@ namespace LeaderLiveInspector
             return string.Join(" | ", parts);
         }
 
+        private static void TryClearConsole()
+        {
+            try
+            {
+                if (!Console.IsOutputRedirected)
+                {
+                    Console.Clear();
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
         private static string BuildWindowSummary(RiftWindowSnapshot snapshot, SavedRiftConfig? config)
         {
             var parts = new List<string>
@@ -216,6 +333,139 @@ namespace LeaderLiveInspector
             }
 
             return string.Join(" | ", parts);
+        }
+
+        private static string BuildSnapshotKey(RiftWindowInfo window)
+        {
+            return $"{window.ProcessId}|{RiftWindowService.FormatHwnd(window.Hwnd)}";
+        }
+
+        private static void LogSnapshotEvents(string path, InspectionSnapshot previous, InspectionSnapshot current)
+        {
+            if (!string.Equals(previous.Analysis.ProfileName, current.Analysis.ProfileName, StringComparison.OrdinalIgnoreCase))
+            {
+                AppendEvent(path, BuildEvent(current, "profile_changed", previous.Analysis.ProfileName, current.Analysis.ProfileName, "Sample profile changed."));
+            }
+
+            if (previous.Analysis.State.IsValid != current.Analysis.State.IsValid)
+            {
+                AppendEvent(
+                    path,
+                    BuildEvent(
+                        current,
+                        "strip_validity_changed",
+                        previous.Analysis.State.IsValid ? "valid" : "invalid",
+                        current.Analysis.State.IsValid ? "valid" : "invalid",
+                        "Telemetry strip validity changed."));
+            }
+
+            string previousClient = $"{previous.Snapshot.ClientWidth}x{previous.Snapshot.ClientHeight}";
+            string currentClient = $"{current.Snapshot.ClientWidth}x{current.Snapshot.ClientHeight}";
+            if (!string.Equals(previousClient, currentClient, StringComparison.Ordinal))
+            {
+                AppendEvent(path, BuildEvent(current, "client_size_changed", previousClient, currentClient, "Live client size changed."));
+            }
+
+            if (previous.Snapshot.IsMinimized != current.Snapshot.IsMinimized)
+            {
+                AppendEvent(
+                    path,
+                    BuildEvent(
+                        current,
+                        "minimized_changed",
+                        previous.Snapshot.IsMinimized ? "true" : "false",
+                        current.Snapshot.IsMinimized ? "true" : "false",
+                        "Window minimized state changed."));
+            }
+
+            if (previous.SavedResolutionMatchesLiveClient != current.SavedResolutionMatchesLiveClient)
+            {
+                AppendEvent(
+                    path,
+                    BuildEvent(
+                        current,
+                        "saved_resolution_match_changed",
+                        NullableBool(previous.SavedResolutionMatchesLiveClient),
+                        NullableBool(current.SavedResolutionMatchesLiveClient),
+                        "Saved resolution match state changed."));
+            }
+        }
+
+        private static LiveInspectorEventRow BuildEvent(InspectionSnapshot inspection, string eventType, string before, string after, string details)
+        {
+            return new LiveInspectorEventRow
+            {
+                Timestamp = DateTime.Now,
+                Window = RiftWindowService.FormatIdentity(inspection.Window),
+                ProcessId = inspection.Window.ProcessId,
+                Hwnd = RiftWindowService.FormatHwnd(inspection.Window.Hwnd),
+                EventType = eventType,
+                Before = before,
+                After = after,
+                Details = details,
+            };
+        }
+
+        private static void EnsureSampleLog(string path)
+        {
+            if (!File.Exists(path))
+            {
+                File.WriteAllText(path, "Timestamp,Window,ProcessId,Hwnd,Profile,StripWidth,StripHeight,IsValid,CoordX,CoordY,CoordZ,IsMoving,IsMounted,HasTarget,PlayerHP,TargetHP,RawFacing,ZoneHash,PlayerTag,ClientWidth,ClientHeight,IsMinimized,SavedResolutionMatchesLiveClient\n");
+            }
+        }
+
+        private static void EnsureEventLog(string path)
+        {
+            if (!File.Exists(path))
+            {
+                File.WriteAllText(path, "Timestamp,Window,ProcessId,Hwnd,EventType,Before,After,Details\n");
+            }
+        }
+
+        private static void AppendSample(string path, InspectionSnapshot inspection)
+        {
+            GameState state = inspection.Analysis.State;
+            string line = string.Join(",",
+                Csv(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)),
+                Csv(RiftWindowService.FormatIdentity(inspection.Window)),
+                Csv(inspection.Window.ProcessId.ToString(CultureInfo.InvariantCulture)),
+                Csv(RiftWindowService.FormatHwnd(inspection.Window.Hwnd)),
+                Csv(inspection.Analysis.ProfileName),
+                Csv(inspection.Analysis.Width.ToString(CultureInfo.InvariantCulture)),
+                Csv(inspection.Analysis.Height.ToString(CultureInfo.InvariantCulture)),
+                Csv(Bool(state.IsValid)),
+                Csv(Float(state.CoordX)),
+                Csv(Float(state.CoordY)),
+                Csv(Float(state.CoordZ)),
+                Csv(Bool(state.IsMoving)),
+                Csv(Bool(state.IsMounted)),
+                Csv(Bool(state.HasTarget)),
+                Csv(state.PlayerHP.ToString(CultureInfo.InvariantCulture)),
+                Csv(state.TargetHP.ToString(CultureInfo.InvariantCulture)),
+                Csv(Float(state.RawFacing)),
+                Csv(state.ZoneHash.ToString(CultureInfo.InvariantCulture)),
+                Csv(state.PlayerTag),
+                Csv(NullableInt(inspection.Snapshot.ClientWidth)),
+                Csv(NullableInt(inspection.Snapshot.ClientHeight)),
+                Csv(Bool(inspection.Snapshot.IsMinimized)),
+                Csv(NullableBool(inspection.SavedResolutionMatchesLiveClient)));
+
+            File.AppendAllText(path, line + Environment.NewLine);
+        }
+
+        private static void AppendEvent(string path, LiveInspectorEventRow row)
+        {
+            string line = string.Join(",",
+                Csv(row.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)),
+                Csv(row.Window),
+                Csv(row.ProcessId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
+                Csv(row.Hwnd),
+                Csv(row.EventType),
+                Csv(row.Before),
+                Csv(row.After),
+                Csv(row.Details));
+
+            File.AppendAllText(path, line + Environment.NewLine);
         }
 
         private static SavedRiftConfig? TryLoadSavedRiftConfig()
@@ -304,6 +554,36 @@ namespace LeaderLiveInspector
 
                     case "--watch":
                         options.Watch = true;
+                        break;
+
+                    case "--watch-count":
+                        if (!TryReadInt(args, ref i, out int watchCount, out error))
+                        {
+                            return false;
+                        }
+
+                        if (watchCount < 0)
+                        {
+                            error = "--watch-count cannot be negative.";
+                            return false;
+                        }
+
+                        options.WatchCount = watchCount;
+                        break;
+
+                    case "--interval-ms":
+                        if (!TryReadInt(args, ref i, out int intervalMs, out error))
+                        {
+                            return false;
+                        }
+
+                        if (intervalMs <= 0)
+                        {
+                            error = "--interval-ms must be greater than zero.";
+                            return false;
+                        }
+
+                        options.IntervalMs = intervalMs;
                         break;
 
                     case "--list":
@@ -450,6 +730,7 @@ namespace LeaderLiveInspector
             Console.WriteLine("  LeaderLiveInspector.exe --list");
             Console.WriteLine("  LeaderLiveInspector.exe --pid 127928");
             Console.WriteLine("  LeaderLiveInspector.exe --pids 127928,128104 --watch");
+            Console.WriteLine("  LeaderLiveInspector.exe --pids 127928,128104 --watch --watch-count 5 --interval-ms 500");
             Console.WriteLine("  LeaderLiveInspector.exe --hwnd 0x123456 --save-dir C:\\temp");
             Console.WriteLine("  LeaderLiveInspector.exe --hwnds 0x351350,0x123456 --save-dir C:\\temp");
             Console.WriteLine("  LeaderLiveInspector.exe --title-contains RIFT --watch");
@@ -457,6 +738,8 @@ namespace LeaderLiveInspector
             Console.WriteLine("Options:");
             Console.WriteLine("  --list                 List matching RIFT windows");
             Console.WriteLine("  --watch                Refresh repeatedly");
+            Console.WriteLine("  --watch-count N        Limit watch mode to N refreshes (0 = unlimited)");
+            Console.WriteLine("  --interval-ms N        Refresh interval in milliseconds (default: 1000)");
             Console.WriteLine("  --save-dir PATH        Save captured strips to PATH");
             Console.WriteLine("  --pid N                Filter to a specific process id");
             Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
@@ -506,6 +789,39 @@ namespace LeaderLiveInspector
             return bool.TryParse(value, out bool parsed) ? parsed : null;
         }
 
+        private static string FindRepoRoot()
+        {
+            var dir = new DirectoryInfo(Environment.CurrentDirectory);
+            while (dir is not null)
+            {
+                if (Directory.Exists(Path.Combine(dir.FullName, "LeaderDecoder"))
+                    && Directory.Exists(Path.Combine(dir.FullName, "LeaderLiveInspector")))
+                {
+                    return dir.FullName;
+                }
+
+                dir = dir.Parent;
+            }
+
+            return Environment.CurrentDirectory;
+        }
+
+        private static string Csv(string? value)
+        {
+            string text = value ?? string.Empty;
+            return text.Contains('"') || text.Contains(',') || text.Contains('\n') || text.Contains('\r')
+                ? $"\"{text.Replace("\"", "\"\"")}\""
+                : text;
+        }
+
+        private static string Bool(bool value) => value ? "true" : "false";
+
+        private static string Float(float value) => value.ToString("F3", CultureInfo.InvariantCulture);
+
+        private static string NullableInt(int? value) => value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+
+        private static string NullableBool(bool? value) => value.HasValue ? Bool(value.Value) : string.Empty;
+
         private sealed class SavedRiftConfig
         {
             public required string Path { get; init; }
@@ -523,6 +839,8 @@ namespace LeaderLiveInspector
         {
             public bool ShowHelp { get; set; }
             public bool Watch { get; set; }
+            public int WatchCount { get; set; }
+            public int IntervalMs { get; set; } = DefaultWatchIntervalMs;
             public bool ListOnly { get; set; }
             public string? SaveDir { get; set; }
             public int? ProcessId { get; set; }
@@ -530,6 +848,26 @@ namespace LeaderLiveInspector
             public IntPtr? Hwnd { get; set; }
             public IntPtr[]? Hwnds { get; set; }
             public string? TitleContains { get; set; }
+        }
+
+        private sealed class InspectionSnapshot
+        {
+            public required RiftWindowInfo Window { get; init; }
+            public required RiftWindowSnapshot Snapshot { get; init; }
+            public required StripAnalysis Analysis { get; init; }
+            public bool? SavedResolutionMatchesLiveClient { get; init; }
+        }
+
+        private sealed class LiveInspectorEventRow
+        {
+            public required DateTime Timestamp { get; init; }
+            public required string Window { get; init; }
+            public int? ProcessId { get; init; }
+            public required string Hwnd { get; init; }
+            public required string EventType { get; init; }
+            public required string Before { get; init; }
+            public required string After { get; init; }
+            public required string Details { get; init; }
         }
     }
 }
