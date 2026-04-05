@@ -49,6 +49,7 @@ local function PrintHelp()
     print("  " .. prefix .. " export           — Show debug export snapshot status")
     print("  " .. prefix .. " render           — Show renderer health status")
     print("  " .. prefix .. " capabilities     — Show addon capability status")
+    print("  " .. prefix .. " timeline         — Show session timeline status")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -71,12 +72,18 @@ local function HandleDumpCommand(params)
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "on")
         end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
+            Private.SessionTimeline.RecordCommand("dump", "on")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "off" then
         Private.DumpLog.SetEnabled(false)
         print("🛰️ Leader: dump logging OFF")
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "off")
+        end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
+            Private.SessionTimeline.RecordCommand("dump", "off")
         end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "toggle" then
@@ -85,12 +92,18 @@ local function HandleDumpCommand(params)
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", enabled and "toggle_on" or "toggle_off")
         end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
+            Private.SessionTimeline.RecordCommand("dump", enabled and "toggle_on" or "toggle_off")
+        end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "clear" then
         Private.DumpLog.Clear()
         print("🛰️ Leader: dump entries cleared")
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "clear")
+        end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
+            Private.SessionTimeline.RecordCommand("dump", "clear")
         end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "interval" then
@@ -104,6 +117,9 @@ local function HandleDumpCommand(params)
         print(string.format("🛰️ Leader: dump interval set to %.2fs", seconds))
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
             Private.RuntimeStatus.RecordCommand("dump", "interval")
+        end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
+            Private.SessionTimeline.RecordCommand("dump", "interval")
         end
         Private.DumpLog.PrintStatus()
     elseif subcommand == "help" then
@@ -141,6 +157,9 @@ local function HandleBadgeCommand(params)
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
         Private.RuntimeStatus.RecordCommand("badge", subcommand ~= "" and subcommand or "toggle")
     end
+    if Private.SessionTimeline and Private.SessionTimeline.RecordCommand then
+        Private.SessionTimeline.RecordCommand("badge", subcommand ~= "" and subcommand or "toggle")
+    end
 end
 
 local function HandleSlashCommand(_, params)
@@ -171,6 +190,10 @@ local function HandleSlashCommand(_, params)
     elseif command == "capabilities" or command == "caps" then
         if Private.CapabilityStatus and Private.CapabilityStatus.PrintStatus then
             Private.CapabilityStatus.PrintStatus()
+        end
+    elseif command == "timeline" then
+        if Private.SessionTimeline and Private.SessionTimeline.PrintStatus then
+            Private.SessionTimeline.PrintStatus()
         end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
@@ -251,11 +274,17 @@ local function UpdateTelemetry()
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordNoPacket then
             Private.RuntimeStatus.RecordNoPacket(true, IsDumpEnabled())
         end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordNoPacket and Private.RuntimeStatus and Private.RuntimeStatus.GetStatus then
+            Private.SessionTimeline.RecordNoPacket(Private.RuntimeStatus.GetStatus().nilPacketStreak)
+        end
         if Private.TransitionState and Private.TransitionState.RecordNoPacket then
             Private.TransitionState.RecordNoPacket()
         end
         if Private.RenderHealth and Private.RenderHealth.Sync then
             Private.RenderHealth.Sync()
+        end
+        if Private.SessionTimeline and Private.SessionTimeline.RecordRender then
+            Private.SessionTimeline.RecordRender()
         end
         if Private.DebugExport and Private.DebugExport.SyncNoPacket then
             Private.DebugExport.SyncNoPacket()
@@ -314,6 +343,12 @@ local function UpdateTelemetry()
     if Private.RenderHealth and Private.RenderHealth.Sync then
         Private.RenderHealth.Sync()
     end
+    if Private.SessionTimeline and Private.SessionTimeline.RecordPacket then
+        Private.SessionTimeline.RecordPacket(packet)
+    end
+    if Private.SessionTimeline and Private.SessionTimeline.RecordRender then
+        Private.SessionTimeline.RecordRender()
+    end
 
     if Private.DebugExport and Private.DebugExport.Sync then
         Private.DebugExport.Sync(packet)
@@ -329,6 +364,9 @@ local function Init()
     LeaderConfig = LeaderConfig or {}
     if Private.RuntimeStatus and Private.RuntimeStatus.InitSession then
         Private.RuntimeStatus.InitSession()
+    end
+    if Private.SessionTimeline and Private.SessionTimeline.Init then
+        Private.SessionTimeline.Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()

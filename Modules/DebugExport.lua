@@ -51,6 +51,9 @@ local function EnsureConfig()
     if type(export.capabilities) ~= "table" then
         export.capabilities = {}
     end
+    if type(export.timeline) ~= "table" then
+        export.timeline = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -121,6 +124,22 @@ local function UpdateFromCapabilities(export)
     }
 end
 
+local function UpdateFromTimeline(export)
+    if not (Private.SessionTimeline and Private.SessionTimeline.GetStatus) then
+        return
+    end
+
+    local status = Private.SessionTimeline.GetStatus()
+    export.timeline = {
+        lastSeq = status.lastSeq,
+        entryCount = status.entryCount,
+        lastUpdatedAt = status.lastUpdatedAt,
+        lastZoneHash = status.lastZoneHash,
+        lastKind = status.lastKind,
+        lastMessage = status.lastMessage,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -164,6 +183,7 @@ function DebugExport.Sync(packet)
     UpdateFromRuntime(export)
     UpdateFromTransition(export)
     UpdateFromCapabilities(export)
+    UpdateFromTimeline(export)
     UpdateFromDump(export)
 end
 
@@ -175,6 +195,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromRuntime(export)
     UpdateFromTransition(export)
     UpdateFromCapabilities(export)
+    UpdateFromTimeline(export)
     UpdateFromDump(export)
 end
 

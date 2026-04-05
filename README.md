@@ -264,6 +264,24 @@ The badge shows:
 - transition reason
 - current player tag
 
+### Addon-Side Session Timeline
+
+The addon now maintains a bounded session timeline in `LeaderConfig.timeline` so external tools can read one chronological stream of high-level addon events instead of stitching together multiple module histories.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader timeline` | Print the current timeline summary |
+
+The session timeline records:
+
+- session initialization
+- no-packet outages and recovery
+- zone-hash changes
+- dump / badge command actions
+- render-frame failures and layout resyncs
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:
