@@ -21,6 +21,7 @@ namespace LeaderDecoder.Models
         // 🧭 Pursuit Parameters
         public float FollowDistanceMin { get; set; } = 1.5f;
         public float FollowDistanceMax { get; set; } = 3.5f;
+        public float FollowEngageDistanceMax { get; set; } = 20.0f;
         public float AngleTolerance { get; set; } = 0.15f; 
         
         // Legacy turn-steering settings retained for settings.json compatibility.

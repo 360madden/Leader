@@ -72,13 +72,14 @@ namespace LeaderDecoder
             bool isSimMode = options.SimMode;
             bool isFollowEnabled = false;
             bool isLoggingEnabled = false;
+            bool toggleFollowRequested = false;
+            List<RiftLockedRoleAssignment>? lockedRoles = null;
 
             // Global hotkey — ScrollLock toggles follow even inside RIFT
             using var hotkey = new GlobalHotkeyService();
             hotkey.OnToggleFollow = () =>
             {
-                isFollowEnabled = !isFollowEnabled;
-                Console.Beep(isFollowEnabled ? 880 : 440, 120);
+                toggleFollowRequested = true;
             };
             hotkey.Start();
 
@@ -95,20 +96,10 @@ namespace LeaderDecoder
             {
                 var cycleSw = Stopwatch.StartNew();
                 var allWindows = RiftWindowService.FindRiftWindows();
-                var slots = RiftWindowService.BuildWindowSlots(allWindows, filter);
+                var activeFilter = ResolveActiveFilter(filter, lockedRoles);
+                var slots = RiftWindowService.BuildWindowSlots(allWindows, activeFilter);
                 int detectedCount = slots.Count(slot => slot.Window is not null);
-                int displayTargetCount = GetDisplayTargetCount(options);
-
-                // 0. Standby Logic
-                if (detectedCount == 0 && !isSimMode)
-                {
-                    Console.SetCursorPosition(0, 5);
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("[STANDBY] Waiting for matching RIFT game windows... (use --list / --pid / --pids / --hwnd / --hwnds / --title-contains)      ");
-                    Console.ForegroundColor = ConsoleColor.Gray;
-                    Thread.Sleep(1000); // Low-power polling
-                    continue;
-                }
+                int displayTargetCount = GetDisplayTargetCount(options, lockedRoles);
 
                 // 1. Global Input Handling
                 if (Console.KeyAvailable)
@@ -116,8 +107,7 @@ namespace LeaderDecoder
                     var key = Console.ReadKey(true).Key;
                     if (key == ConsoleKey.T)
                     {
-                        isFollowEnabled = !isFollowEnabled;
-                        Console.Beep(isFollowEnabled ? 800 : 400, 150);
+                        toggleFollowRequested = true;
                     }
                     if (key == ConsoleKey.L)
                     {
@@ -144,6 +134,29 @@ namespace LeaderDecoder
                     }
                 }
 
+                if (toggleFollowRequested)
+                {
+                    bool toggled = ToggleFollowState(ref isFollowEnabled, ref lockedRoles, slots, gameStates, filter);
+                    Console.Beep(toggled && isFollowEnabled ? 880 : 440, toggled ? 120 : 220);
+                    toggleFollowRequested = false;
+
+                    activeFilter = ResolveActiveFilter(filter, lockedRoles);
+                    slots = RiftWindowService.BuildWindowSlots(allWindows, activeFilter);
+                    detectedCount = slots.Count(slot => slot.Window is not null);
+                    displayTargetCount = GetDisplayTargetCount(options, lockedRoles);
+                }
+
+                // 0. Standby Logic
+                if (detectedCount == 0 && !isSimMode)
+                {
+                    Console.SetCursorPosition(0, 5);
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("[STANDBY] Waiting for matching RIFT game windows... (use --list / --pid / --pids / --hwnd / --hwnds / --title-contains)      ");
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                    Thread.Sleep(1000); // Low-power polling
+                    continue;
+                }
+
                 // UI Cleanup (Dashboard Mode)
                 Console.SetCursorPosition(0, 5);
                 Console.ForegroundColor = ConsoleColor.Cyan;
@@ -151,6 +164,9 @@ namespace LeaderDecoder
 
                 Console.ForegroundColor = isFollowEnabled ? ConsoleColor.Green : ConsoleColor.Yellow;
                 Console.Write($"PURSUIT: {(isFollowEnabled ? "ACTIVE " : "DISABLED")} ");
+
+                Console.ForegroundColor = lockedRoles is { Count: > 0 } ? ConsoleColor.Green : ConsoleColor.DarkGray;
+                Console.Write($"| ROLES: {(lockedRoles is { Count: > 0 } ? "LOCKED" : "DYNAMIC")} ");
 
                 Console.ForegroundColor = isLoggingEnabled ? ConsoleColor.Magenta : ConsoleColor.DarkGray;
                 Console.WriteLine($"| LOG: {(isLoggingEnabled ? "ON " : "OFF")}      ");
@@ -205,6 +221,26 @@ namespace LeaderDecoder
 
                     if (state != null && state.IsValid)
                     {
+                        bool roleMatched = lockedRoles is null
+                            || (i < lockedRoles.Count && RiftWindowService.MatchesLockedRole(slots.ElementAtOrDefault(i), state, lockedRoles[i]));
+
+                        if (!roleMatched)
+                        {
+                            gameStates[i] = new GameState();
+                            if (i > 0 && i < slots.Count && slots[i].Window is not null)
+                            {
+                                follow.EmergencyStop(i, slots[i].Window!.Hwnd);
+                            }
+
+                            string mismatchIdentity = (i < slots.Count && slots[i].Window is not null)
+                                ? $"{state.PlayerTag}@{RiftWindowService.FormatCompactIdentity(slots[i].Window!)}"
+                                : RiftWindowService.FormatExpectedIdentity(i < slots.Count ? slots[i] : null);
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine($" SLOT[{i + 1}] {mismatchIdentity,-31} | -- ROLE MISMATCH --                                                  ");
+                            Console.ForegroundColor = ConsoleColor.Gray;
+                            continue;
+                        }
+
                         bool zoneChanged = nav.UpdateHeading(i, state);
                         gameStates[i] = state;
 
@@ -266,8 +302,65 @@ namespace LeaderDecoder
             }
         }
 
-        private static int GetDisplayTargetCount(BridgeOptions options)
+        private static RiftWindowFilter? ResolveActiveFilter(RiftWindowFilter? filter, List<RiftLockedRoleAssignment>? lockedRoles)
         {
+            if (lockedRoles is { Count: > 0 })
+            {
+                return new RiftWindowFilter
+                {
+                    ProcessIds = RiftWindowService.ExtractProcessIds(lockedRoles)
+                };
+            }
+
+            return filter;
+        }
+
+        private static bool ToggleFollowState(
+            ref bool isFollowEnabled,
+            ref List<RiftLockedRoleAssignment>? lockedRoles,
+            List<RiftWindowSlot> slots,
+            GameState[] gameStates,
+            RiftWindowFilter? baseFilter)
+        {
+            if (!isFollowEnabled)
+            {
+                IntPtr preferredLeaderHwnd = RiftWindowService.GetForegroundWindowHandle();
+                bool hasForegroundRiftWindow = preferredLeaderHwnd != IntPtr.Zero
+                    && slots.Any(slot => slot.Window is not null && slot.Window.Hwnd == preferredLeaderHwnd);
+                bool hasExplicitRoleOrder = baseFilter?.ProcessIds is { Length: > 0 }
+                    || baseFilter?.Hwnds is { Length: > 0 };
+
+                if (!hasForegroundRiftWindow && !hasExplicitRoleOrder)
+                {
+                    return false;
+                }
+
+                List<RiftLockedRoleAssignment> capturedRoles = RiftWindowService.CaptureRoleAssignments(
+                    slots,
+                    gameStates,
+                    hasForegroundRiftWindow ? preferredLeaderHwnd : IntPtr.Zero);
+                if (capturedRoles.Count == 0)
+                {
+                    return false;
+                }
+
+                lockedRoles = capturedRoles;
+                isFollowEnabled = true;
+                return true;
+            }
+
+            isFollowEnabled = false;
+            lockedRoles = null;
+            return true;
+        }
+
+        private static int GetDisplayTargetCount(BridgeOptions options, List<RiftLockedRoleAssignment>? lockedRoles)
+        {
+            if (lockedRoles is { Count: > 0 })
+            {
+                return Math.Min(lockedRoles.Count, 5);
+            }
+
             if (options.ProcessIds is { Length: > 0 })
             {
                 return Math.Min(options.ProcessIds.Length, 5);

@@ -11,8 +11,9 @@ namespace LeaderDecoder.Services
     /// Instead it does four things in a tight loop:
     ///
     /// 1) Resolve a pursuit goal in world space using the leader's smoothed motion and breadcrumb trail.
-    /// 2) Learn the follower's forward axis from observed forward locomotion, because RIFT forces facing to
-    ///    align with straight-ahead movement.
+    /// 2) Learn the follower's forward axis from observed locomotion with known control input. A forward pulse
+    ///    bootstraps the frame, then later forward/back/strafe pulses all contribute control-conditioned
+    ///    observations that refine that same basis.
     /// 3) Build the local left axis as the perpendicular of that learned forward axis.
     /// 4) Project goal error into that local basis and emit short forward/back/strafe pulses.
     ///
@@ -74,6 +75,7 @@ namespace LeaderDecoder.Services
         {
             public required Vector2 StartPosition { get; init; }
             public required DateTime ExpiresAt { get; init; }
+            public required DriveAxis Axis { get; init; }
         }
 
         private enum DriveAxis
@@ -135,8 +137,14 @@ namespace LeaderDecoder.Services
             }
 
             float leaderDistance = _nav.CalculateDistance(follower, leader);
+            if (leaderDistance > _settings.FollowEngageDistanceMax)
+            {
+                EmergencyStop(slot, hwnd);
+                return;
+            }
+
             float desiredTrailDistance = ResolveTrailDistance();
-            (float goalX, float goalZ) = _nav.ResolveFollowTarget(0, leader, desiredTrailDistance, PredictionSeconds);
+            (float goalX, float goalZ) = _nav.ResolveFollowTarget(0, slot, leader, follower, desiredTrailDistance, PredictionSeconds);
 
             Vector2 followerPosition = new(follower.CoordX, follower.CoordZ);
             Vector2 goal = new(goalX, goalZ);
@@ -237,7 +245,11 @@ namespace LeaderDecoder.Services
 
             if (displacement.Length() >= BasisLearnDistance)
             {
-                LearnForwardBasis(slot, displacement);
+                if (TryResolveForwardSample(displacement, state.PendingForwardCalibration.Axis, out Vector2 sampleForward))
+                {
+                    LearnForwardBasis(slot, sampleForward);
+                }
+
                 state.PendingForwardCalibration = null;
                 return;
             }
@@ -248,9 +260,9 @@ namespace LeaderDecoder.Services
             }
         }
 
-        private void LearnForwardBasis(int slot, Vector2 displacement)
+        private void LearnForwardBasis(int slot, Vector2 sample)
         {
-            if (!TryNormalize(displacement, out Vector2 sampleForward))
+            if (!TryNormalize(sample, out Vector2 sampleForward))
             {
                 return;
             }
@@ -272,12 +284,7 @@ namespace LeaderDecoder.Services
             _input.TapScanCode(hwnd, _settings.KeyForward, ForwardCalibrationPulseMs);
             _lastNavPulseAt[slot] = DateTime.Now;
 
-            SlotState state = _slotStates[slot];
-            state.PendingForwardCalibration ??= new ForwardCalibration
-            {
-                StartPosition = followerPosition,
-                ExpiresAt = DateTime.Now.AddMilliseconds(ForwardCalibrationPulseMs + CalibrationObserveWindowMs),
-            };
+            StartBasisObservation(slot, followerPosition, ForwardCalibrationPulseMs, DriveAxis.Forward);
         }
 
         private ProgressState UpdateProgress(int slot, float goalDistance)
@@ -356,7 +363,7 @@ namespace LeaderDecoder.Services
                 return new DriveCommand(
                     goLeft ? DriveAxis.StrafeLeft : DriveAxis.StrafeRight,
                     ResolvePulseDurationMs(drive),
-                    false);
+                    true);
             }
 
             if (eForward > ForwardDeadzone)
@@ -371,7 +378,7 @@ namespace LeaderDecoder.Services
             if (eForward < -BackwardDeadzone)
             {
                 float drive = MathF.Tanh(BackwardGain * absForward);
-                return new DriveCommand(DriveAxis.Backward, ResolvePulseDurationMs(drive), false);
+                return new DriveCommand(DriveAxis.Backward, ResolvePulseDurationMs(drive), true);
             }
 
             if (absLateral > LateralDeadzone)
@@ -381,7 +388,7 @@ namespace LeaderDecoder.Services
                 return new DriveCommand(
                     goLeft ? DriveAxis.StrafeLeft : DriveAxis.StrafeRight,
                     ResolvePulseDurationMs(drive),
-                    false);
+                    true);
             }
 
             return new DriveCommand(DriveAxis.None, 0, false);
@@ -408,12 +415,7 @@ namespace LeaderDecoder.Services
 
             if (command.RefreshForwardBasis)
             {
-                SlotState state = _slotStates[slot];
-                state.PendingForwardCalibration ??= new ForwardCalibration
-                {
-                    StartPosition = followerPosition,
-                    ExpiresAt = DateTime.Now.AddMilliseconds(command.DurationMs + CalibrationObserveWindowMs),
-                };
+                StartBasisObservation(slot, followerPosition, command.DurationMs, command.Axis);
             }
         }
 
@@ -449,6 +451,36 @@ namespace LeaderDecoder.Services
             return Math.Clamp(averageBand, _settings.FollowDistanceMin + 0.4f, _settings.FollowDistanceMax);
         }
 
+        private void StartBasisObservation(int slot, Vector2 followerPosition, int commandDurationMs, DriveAxis axis)
+        {
+            if (slot <= 0 || slot >= _slotStates.Length || axis == DriveAxis.None)
+            {
+                return;
+            }
+
+            SlotState state = _slotStates[slot];
+            state.PendingForwardCalibration = new ForwardCalibration
+            {
+                StartPosition = followerPosition,
+                ExpiresAt = DateTime.Now.AddMilliseconds(commandDurationMs + CalibrationObserveWindowMs),
+                Axis = axis,
+            };
+        }
+
+        private static bool TryResolveForwardSample(Vector2 displacement, DriveAxis axis, out Vector2 sampleForward)
+        {
+            Vector2 candidate = axis switch
+            {
+                DriveAxis.Forward => displacement,
+                DriveAxis.Backward => -displacement,
+                DriveAxis.StrafeLeft => RotateRight(displacement),
+                DriveAxis.StrafeRight => RotateLeft(displacement),
+                _ => Vector2.Zero,
+            };
+
+            return TryNormalize(candidate, out sampleForward);
+        }
+
         private static Vector2 BlendDirection(Vector2 current, Vector2 sample)
         {
             Vector2 blended = current * (1f - BasisBlendAlpha) + sample * BasisBlendAlpha;
@@ -465,9 +497,13 @@ namespace LeaderDecoder.Services
         private static Vector2 PerpendicularLeft(Vector2 forward)
         {
             return TryNormalize(forward, out Vector2 normalized)
-                ? new Vector2(-normalized.Y, normalized.X)
+                ? RotateLeft(normalized)
                 : Vector2.Zero;
         }
+
+        private static Vector2 RotateLeft(Vector2 vector) => new(-vector.Y, vector.X);
+
+        private static Vector2 RotateRight(Vector2 vector) => new(vector.Y, -vector.X);
 
         private static bool TryNormalize(Vector2 vector, out Vector2 normalized)
         {

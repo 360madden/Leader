@@ -81,6 +81,7 @@ Auto-generated on first run next to `LeaderDecoder.exe`:
   "TargetFPS": 30,
   "FollowDistanceMin": 1.5,
   "FollowDistanceMax": 3.5,
+  "FollowEngageDistanceMax": 20.0,
   "AngleTolerance": 0.15,
   "TurnP": 0.8,
   "TurnD": 0.2,
@@ -96,6 +97,7 @@ Auto-generated on first run next to `LeaderDecoder.exe`:
 ```
 
 **PD Tuning Reference:**
+- `FollowEngageDistanceMax` — Followers only attempt coordinate-follow when the leader is within this range. Default `20.0`
 - `TurnP` — Rotation intensity. Higher = more aggressive turning. Default `0.8`
 - `TurnD` — Rotation damping. Higher = less overshoot jitter. Default `0.2`
 - `FollowDistanceMin/Max` — Deadzone band in metres. Followers hold inside, chase outside.

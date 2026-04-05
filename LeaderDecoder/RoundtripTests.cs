@@ -61,14 +61,21 @@ namespace LeaderDecoder
             TestBreadcrumbFollowTargetTrailsPath();
             TestFollowBootstrapsForwardCalibration();
             TestForwardCalibrationLearnsBasisAndDerivesLeftAxis();
+            TestStrafeObservationRefinesForwardBasis();
+            TestBackwardObservationRefinesForwardBasis();
             TestFollowBackpedalsWhenGoalIsBehind();
+            TestFollowDoesNotEngageBeyondMaxDistance();
             TestFollowUsesBreadcrumbTrailInsteadOfBodyChase();
+            TestFollowerTrailMatchPrefersLocalBreadcrumbCarrot();
             TestWorseningProgressForcesRecalibration();
             TestEmergencyStopResetsBasisAndReleasesKeys();
             TestMountSyncUsesConfiguredKey();
             TestAssistUsesConfiguredKey();
             TestZoneChangeClearsHeadingHistory();
             TestZoneMismatchStopsFollow();
+            TestRoleLockCapturesCurrentAssignments();
+            TestRoleLockPrefersForegroundWindowAsLeader();
+            TestRoleLockMatchesExpectedWindowAndTag();
             TestWindowFilterProcessIdOrder();
             TestWindowFilterHwndOrder();
             TestWindowSlotsPreserveMissingProcessIdEntries();
@@ -315,6 +322,91 @@ namespace LeaderDecoder
                 $"taps=[{string.Join(",", input.TappedScanCodes)}]");
         }
 
+        private static void TestStrafeObservationRefinesForwardBasis()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0.8f, 0.6f));
+
+            var leaderLeft = BuildState();
+            leaderLeft.CoordX = -5f;
+            leaderLeft.CoordZ = 0.25f;
+
+            var followerStart = BuildState();
+            controller.Update(1, followerStart, leaderLeft, IntPtr.Zero);
+
+            var followerAfterStrafe = BuildState();
+            followerAfterStrafe.CoordX = -0.8f;
+            followerAfterStrafe.IsMoving = true;
+
+            controller.Update(1, followerAfterStrafe, leaderLeft, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = input.TappedScanCodes.Count >= 1
+                && input.TappedScanCodes[0] == settings.KeyLeft
+                && debug.Forward.Y > debug.Forward.X
+                && debug.Forward.Y > 0.75f;
+
+            Assert("Follow [Strafe observation refines forward basis]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] forward=({debug.Forward.X:F2},{debug.Forward.Y:F2})");
+        }
+
+        private static void TestBackwardObservationRefinesForwardBasis()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0.6f, 0.8f));
+
+            var leaderBehind = BuildState();
+            leaderBehind.CoordX = -3f;
+            leaderBehind.CoordZ = -4f;
+
+            var followerStart = BuildState();
+            controller.Update(1, followerStart, leaderBehind, IntPtr.Zero);
+
+            var followerAfterBackpedal = BuildState();
+            followerAfterBackpedal.CoordZ = -0.8f;
+            followerAfterBackpedal.IsMoving = true;
+
+            controller.Update(1, followerAfterBackpedal, leaderBehind, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = input.TappedScanCodes.Count >= 1
+                && input.TappedScanCodes[0] == settings.KeyBack
+                && debug.Forward.Y > 0.90f
+                && debug.Forward.X < 0.45f;
+
+            Assert("Follow [Backward observation refines forward basis]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] forward=({debug.Forward.X:F2},{debug.Forward.Y:F2})");
+        }
+
+        private static void TestFollowDoesNotEngageBeyondMaxDistance()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings { FollowEngageDistanceMax = 20f };
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
+
+            var leader = BuildState();
+            leader.CoordZ = 25f;
+            var follower = BuildState();
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = input.TappedScanCodes.Count == 0
+                && !debug.HasForwardBasis
+                && input.UpScanCodes.Contains(settings.KeyForward)
+                && input.UpScanCodes.Contains(settings.KeyLeft)
+                && input.UpScanCodes.Contains(settings.KeyBack)
+                && input.UpScanCodes.Contains(settings.KeyRight);
+
+            Assert("Follow [Does not engage beyond max distance]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] hasBasis={debug.HasForwardBasis} ups=[{string.Join(",", input.UpScanCodes)}]");
+        }
+
         private static void TestFollowUsesBreadcrumbTrailInsteadOfBodyChase()
         {
             var input = new RecordingInputEngine();
@@ -352,6 +444,53 @@ namespace LeaderDecoder
 
             bool ok = input.TappedScanCodes.Count == 1 && input.TappedScanCodes[0] == settings.KeyForward;
             Assert("Follow [Breadcrumb trail beats body chase]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+        }
+
+        private static void TestFollowerTrailMatchPrefersLocalBreadcrumbCarrot()
+        {
+            var input = new RecordingInputEngine();
+            var nav = new NavigationKernel();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, nav, settings);
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
+
+            var leader0 = BuildState();
+            leader0.CoordX = 0f;
+            leader0.CoordZ = 0f;
+
+            var leader1 = BuildState();
+            leader1.CoordX = 0f;
+            leader1.CoordZ = 5f;
+            leader1.IsMoving = true;
+
+            var leader2 = BuildState();
+            leader2.CoordX = 5f;
+            leader2.CoordZ = 5f;
+            leader2.IsMoving = true;
+
+            nav.UpdateHeading(0, leader0);
+            nav.UpdateHeading(0, leader1);
+            nav.UpdateHeading(0, leader2);
+            leader2.HasTravelVector = false;
+            leader2.SmoothedVelocityX = 0f;
+            leader2.SmoothedVelocityZ = 0f;
+
+            var follower0 = BuildState();
+            follower0.CoordX = 0f;
+            follower0.CoordZ = 0f;
+
+            var follower1 = BuildState();
+            follower1.CoordX = 0f;
+            follower1.CoordZ = 2f;
+
+            nav.UpdateHeading(1, follower0);
+            nav.UpdateHeading(1, follower1);
+
+            controller.Update(1, follower1, leader2, IntPtr.Zero);
+
+            bool ok = input.TappedScanCodes.Count == 1 && input.TappedScanCodes[0] == settings.KeyForward;
+            Assert("Follow [Follower trail match prefers local breadcrumb carrot]", ok,
                 $"taps=[{string.Join(",", input.TappedScanCodes)}]");
         }
 
@@ -515,6 +654,111 @@ namespace LeaderDecoder
             bool ok = filtered.Count == 2 && filtered[0].ProcessId == 303 && filtered[1].ProcessId == 101;
             Assert("Window [PID list preserves order]", ok,
                 $"got [{string.Join(",", filtered.Select(window => window.ProcessId))}]");
+        }
+
+        private static void TestRoleLockCapturesCurrentAssignments()
+        {
+            var slots = new[]
+            {
+                new RiftWindowSlot
+                {
+                    Window = new RiftWindowInfo { Title = "Leader", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1003, ProcessId = 303, BaseAddress = 0 }
+                },
+                new RiftWindowSlot
+                {
+                    Window = null,
+                    ExpectedProcessId = 999
+                },
+                new RiftWindowSlot
+                {
+                    Window = new RiftWindowInfo { Title = "Follower", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1001, ProcessId = 101, BaseAddress = 0 }
+                }
+            };
+
+            var states = new[]
+            {
+                new GameState { IsValid = true, PlayerTag = "LEAD" },
+                new GameState(),
+                new GameState { IsValid = true, PlayerTag = "FOL1" }
+            };
+
+            List<RiftLockedRoleAssignment> captured = RiftWindowService.CaptureRoleAssignments(slots, states);
+            bool ok = captured.Count == 2
+                && captured[0].ProcessId == 303
+                && captured[0].ExpectedPlayerTag == "LEAD"
+                && captured[1].ProcessId == 101
+                && captured[1].ExpectedPlayerTag == "FOL1";
+            Assert("Window [Role lock captures current slot order]", ok,
+                $"got [{string.Join(",", captured.Select(role => $"{role.ProcessId}:{role.ExpectedPlayerTag ?? "null"}"))}]");
+        }
+
+        private static void TestRoleLockMatchesExpectedWindowAndTag()
+        {
+            var slot = new RiftWindowSlot
+            {
+                Window = new RiftWindowInfo { Title = "Follower", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1001, ProcessId = 101, BaseAddress = 0 }
+            };
+
+            var state = new GameState
+            {
+                IsValid = true,
+                PlayerTag = "fol1"
+            };
+
+            var assignment = new RiftLockedRoleAssignment
+            {
+                ProcessId = 101,
+                ExpectedPlayerTag = "FOL1",
+                InitialHwnd = (IntPtr)0x1001,
+                InitialTitle = "Follower"
+            };
+
+            var wrongTagState = new GameState
+            {
+                IsValid = true,
+                PlayerTag = "OTHR"
+            };
+
+            bool ok = RiftWindowService.MatchesLockedRole(slot, state, assignment)
+                && !RiftWindowService.MatchesLockedRole(slot, wrongTagState, assignment);
+
+            Assert("Window [Role lock validates expected tag]", ok,
+                $"match={RiftWindowService.MatchesLockedRole(slot, state, assignment)} wrongTag={RiftWindowService.MatchesLockedRole(slot, wrongTagState, assignment)}");
+        }
+
+        private static void TestRoleLockPrefersForegroundWindowAsLeader()
+        {
+            var slots = new[]
+            {
+                new RiftWindowSlot
+                {
+                    Window = new RiftWindowInfo { Title = "Follower", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1001, ProcessId = 101, BaseAddress = 0 }
+                },
+                new RiftWindowSlot
+                {
+                    Window = new RiftWindowInfo { Title = "Leader", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1003, ProcessId = 303, BaseAddress = 0 }
+                }
+            };
+
+            var states = new[]
+            {
+                new GameState { IsValid = true, PlayerTag = "FOL1" },
+                new GameState { IsValid = true, PlayerTag = "LEAD" }
+            };
+
+            List<RiftLockedRoleAssignment> captured = RiftWindowService.CaptureRoleAssignments(
+                slots,
+                states,
+                preferredLeaderHwnd: (IntPtr)0x1003);
+
+            bool ok = captured.Count == 2
+                && captured[0].ProcessId == 303
+                && captured[0].ExpectedPlayerTag == "LEAD"
+                && captured[1].ProcessId == 101
+                && captured[1].ExpectedPlayerTag == "FOL1";
+
+            Assert("Window [Role lock prefers foreground leader]", ok,
+                $"got [{string.Join(",", captured.Select(role => $"{role.ProcessId}:{role.ExpectedPlayerTag ?? "null"}"))}]");
         }
 
         private static void TestWindowFilterHwndOrder()

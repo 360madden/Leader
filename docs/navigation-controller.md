@@ -49,15 +49,18 @@ That gives a travel direction even if no explicit facing value exists.
 
 If position does not change, then direction is underdetermined.
 
-### 3. The follower's forward axis becomes observable after true forward locomotion
+### 3. The follower's forward axis becomes observable after commanded locomotion
 
-RIFT forces the character to face the direction of straight forward walking/running. Therefore, after a short forward probe:
+RIFT ties avatar translation to the avatar frame. A short forward probe bootstraps that frame, and later pulses with known local axes provide additional observations. Therefore, after a commanded pulse with measurable displacement `Δ`:
 
 ```text
-h = normalize(s_1 - s_0)
+Forward pulse:      h = normalize(Δ)
+Backward pulse:     h = normalize(-Δ)
+Strafe-left pulse:  h = normalize(Δ_y, -Δ_x)
+Strafe-right pulse: h = normalize(-Δ_y, Δ_x)
 ```
 
-is a valid estimate of the follower's forward axis, provided the probe actually caused measurable movement.
+Each case is just the inverse of the local-frame rotation implied by the issued control, provided the pulse actually caused measurable movement.
 
 This is the key practical observability fact that makes the whole controller viable without a direct facing field.
 
@@ -121,6 +124,7 @@ Instead it forms a goal point using:
 1. current leader position
 2. a short predictive lead based on smoothed leader velocity
 3. a backward walk along the breadcrumb trail to enforce trailing distance
+4. the follower's matched progress on that same trail to keep far-behind pursuit local
 
 Conceptually:
 
@@ -130,30 +134,39 @@ g = t_k + τ v_t - d u_t
 
 But instead of subtracting only a raw travel vector, the implementation walks backward along the stored path. That is stronger around corners because it follows where the leader **went**, not merely where the leader is pointed right now.
 
+When the follower is still far behind the ideal trailing point, the implementation now projects the follower's recent breadcrumb samples onto the leader trail and advances the target only a short lookahead distance ahead of that matched point. In practice this creates a local "carrot" on the same path, which reduces corner-cutting and stale snaps toward a distant point behind the leader.
+
 ### Layer 3 — Follower Basis Learning
 
 Implemented in `FollowController`.
 
-The follower does not begin with a trusted local frame. It creates one from an observed forward probe.
+The follower does not begin with a trusted local frame. It bootstraps one from an observed forward probe, then keeps refining it from later commanded motion.
 
 Procedure:
 
 1. If no forward basis exists, send a short forward pulse.
 2. Observe the resulting displacement over a small time window.
-3. If the displacement exceeds the minimum learn distance, accept it as the forward axis.
+3. Convert that displacement back into a forward-axis sample using the axis of the command that caused it.
+4. If the displacement exceeds the minimum learn distance, blend the sample into the current forward basis.
 
 Mathematically:
 
 ```text
-h = normalize(s_1 - s_0)
+sample(Forward, Δ)     = normalize(Δ)
+sample(Backward, Δ)    = normalize(-Δ)
+sample(StrafeLeft, Δ)  = normalize(Δ_y, -Δ_x)
+sample(StrafeRight, Δ) = normalize(-Δ_y, Δ_x)
+
+h <- blend(h, sample)
 l = (-h_y, h_x)
 ```
 
 Important design choice:
 
-- The controller now learns **forward only**.
-- The left axis is derived by perpendicular rotation.
-- It does **not** require a separate left/right calibration probe to start operating.
+- The controller still bootstraps with a forward probe.
+- After bootstrap it can refine `h` from forward, backward, or strafe pulses because the issued local axis is known.
+- The left axis is always derived by perpendicular rotation.
+- It does **not** require a separate standing turn/camera probe.
 
 That is simpler, more robust, and aligns with the actual observability available in-game.
 
@@ -263,7 +276,7 @@ This controller avoids that trap by only demanding what can actually be observed
 
 ### It uses game behavior, not undocumented state
 
-The follower basis is learned from the fact that straight forward movement causes the avatar to face that direction.
+The follower basis is learned from the geometry of commanded movement, not from camera state or undocumented memory. A forward pulse bootstraps the frame, and later forward/back/strafe pulses refine it by inverting the known local-axis rotation.
 
 That is much safer than inventing or assuming a hidden facing field exists.
 
@@ -295,7 +308,7 @@ Key behaviors implemented there:
 
 Key behaviors implemented there:
 
-- forward-only basis calibration
+- forward-probe bootstrap with command-conditioned basis refinement
 - perpendicular left-axis derivation
 - local-frame error projection
 - pulse-based forward/back/strafe command selection
@@ -311,7 +324,9 @@ Covered cases include:
 
 - motion direction derived from coordinates
 - breadcrumb trailing target selection
+- follower-aligned breadcrumb carrot selection when trailing far behind
 - bootstrap forward calibration
+- strafe/backward observations refining the forward basis
 - learned forward basis producing correct lateral motion
 - backpedal selection when the goal is behind
 - breadcrumb path preference over body chase
@@ -361,7 +376,6 @@ This design assumes:
 This design does **not** yet do all of the following:
 
 - explicit LOS-driven fallback modes
-- breadcrumb index matching against follower history
 - obstacle-aware repathing
 - terrain-classified movement policy
 

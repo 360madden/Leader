@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
+using LeaderDecoder.Models;
 
 namespace LeaderDecoder.Services
 {
@@ -43,6 +44,14 @@ namespace LeaderDecoder.Services
         public RiftWindowInfo? Window { get; init; }
         public int? ExpectedProcessId { get; init; }
         public IntPtr? ExpectedHwnd { get; init; }
+    }
+
+    public sealed class RiftLockedRoleAssignment
+    {
+        public required int ProcessId { get; init; }
+        public string? ExpectedPlayerTag { get; init; }
+        public IntPtr InitialHwnd { get; init; }
+        public string? InitialTitle { get; init; }
     }
 
     public static class RiftWindowService
@@ -151,6 +160,99 @@ namespace LeaderDecoder.Services
                 .Take(maxSlots)
                 .Select(window => new RiftWindowSlot { Window = window })
                 .ToList();
+        }
+
+        public static List<RiftLockedRoleAssignment> CaptureRoleAssignments(
+            IEnumerable<RiftWindowSlot> slots,
+            IReadOnlyList<GameState> states,
+            IntPtr? preferredLeaderHwnd = null,
+            int maxSlots = 5)
+        {
+            if (maxSlots <= 0)
+            {
+                return new List<RiftLockedRoleAssignment>();
+            }
+
+            var captured = new List<RiftLockedRoleAssignment>(maxSlots);
+            var indexedSlots = slots
+                .Take(maxSlots)
+                .Select((slot, index) => (Slot: slot, StateIndex: index))
+                .ToArray();
+            if (preferredLeaderHwnd.HasValue && preferredLeaderHwnd.Value != IntPtr.Zero)
+            {
+                int preferredIndex = Array.FindIndex(
+                    indexedSlots,
+                    entry => entry.Slot.Window is not null && entry.Slot.Window.Hwnd == preferredLeaderHwnd.Value);
+                if (preferredIndex > 0)
+                {
+                    (RiftWindowSlot Slot, int StateIndex) preferred = indexedSlots[preferredIndex];
+                    for (int index = preferredIndex; index > 0; index--)
+                    {
+                        indexedSlots[index] = indexedSlots[index - 1];
+                    }
+
+                    indexedSlots[0] = preferred;
+                }
+            }
+
+            for (int index = 0; index < indexedSlots.Length; index++)
+            {
+                RiftWindowInfo? window = indexedSlots[index].Slot.Window;
+                if (window is null)
+                {
+                    continue;
+                }
+
+                string? expectedPlayerTag = null;
+                int stateIndex = indexedSlots[index].StateIndex;
+                if (stateIndex < states.Count && states[stateIndex] is GameState state && state.IsValid)
+                {
+                    expectedPlayerTag = NormalizePlayerTag(state.PlayerTag);
+                }
+
+                captured.Add(new RiftLockedRoleAssignment
+                {
+                    ProcessId = window.ProcessId,
+                    ExpectedPlayerTag = expectedPlayerTag,
+                    InitialHwnd = window.Hwnd,
+                    InitialTitle = window.Title,
+                });
+            }
+
+            return captured;
+        }
+
+        public static int[] ExtractProcessIds(IEnumerable<RiftLockedRoleAssignment> assignments)
+        {
+            return assignments.Select(assignment => assignment.ProcessId).ToArray();
+        }
+
+        public static IntPtr GetForegroundWindowHandle()
+        {
+            return Win32.GetForegroundWindow();
+        }
+
+        public static bool MatchesLockedRole(RiftWindowSlot? slot, GameState? state, RiftLockedRoleAssignment? assignment)
+        {
+            if (slot?.Window is null || state is null || !state.IsValid || assignment is null)
+            {
+                return false;
+            }
+
+            if (slot.Window.ProcessId != assignment.ProcessId)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(assignment.ExpectedPlayerTag))
+            {
+                return string.Equals(
+                    NormalizePlayerTag(state.PlayerTag),
+                    assignment.ExpectedPlayerTag,
+                    StringComparison.Ordinal);
+            }
+
+            return true;
         }
 
         public static bool MatchesFilter(RiftWindowInfo window, RiftWindowFilter filter)
@@ -339,6 +441,38 @@ namespace LeaderDecoder.Services
             return int.MaxValue;
         }
 
+        private static string? NormalizePlayerTag(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                return null;
+            }
+
+            Span<char> chars = stackalloc char[4];
+            int writeIndex = 0;
+
+            foreach (char raw in tag.ToUpperInvariant())
+            {
+                if ((raw >= 'A' && raw <= 'Z') || (raw >= '0' && raw <= '9') || raw == '_')
+                {
+                    chars[writeIndex++] = raw;
+                }
+
+                if (writeIndex == chars.Length)
+                {
+                    break;
+                }
+            }
+
+            while (writeIndex < chars.Length)
+            {
+                chars[writeIndex++] = '_';
+            }
+
+            string normalized = new(chars);
+            return normalized == "____" ? null : normalized;
+        }
+
         private static class Win32
         {
             [StructLayout(LayoutKind.Sequential)]
@@ -368,6 +502,9 @@ namespace LeaderDecoder.Services
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool IsIconic(IntPtr hwnd);
+
+            [DllImport("user32.dll")]
+            public static extern IntPtr GetForegroundWindow();
         }
     }
 }
