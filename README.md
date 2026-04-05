@@ -186,6 +186,25 @@ Use:
 
 Transition state keeps a bounded history plus counts for transition activations and recoveries, along with the current reason, zone hash, and nil-packet streak.
 
+### Addon-Side Debug Export
+
+The addon now also maintains a compact machine-readable snapshot in `LeaderConfig.debugExport` so external helpers can read one canonical internal state blob instead of stitching together multiple tables.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader export` | Print the current debug-export summary |
+
+The export snapshot includes:
+
+- latest packet summary
+- runtime heartbeat summary
+- transition/loading summary
+- dump logging summary
+
+This is intended for offline/helper-app consumption from SavedVariables, not live file output from the addon.
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:

@@ -16,6 +16,7 @@ RunOnStartup = {
   "Modules/DumpLog.lua",
   "Modules/RuntimeStatus.lua",
   "Modules/TransitionState.lua",
+  "Modules/DebugExport.lua",
   "Modules/DiagnosticUI.lua",
   "main.lua"
 }

@@ -46,6 +46,7 @@ local function PrintHelp()
     print("  " .. prefix .. " diag             — Toggle telemetry audit overlay")
     print("  " .. prefix .. " status           — Show runtime heartbeat status")
     print("  " .. prefix .. " transition       — Show loading/transition status")
+    print("  " .. prefix .. " export           — Show debug export snapshot status")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
@@ -127,6 +128,10 @@ local function HandleSlashCommand(_, params)
         if Private.TransitionState and Private.TransitionState.PrintStatus then
             Private.TransitionState.PrintStatus()
         end
+    elseif command == "export" then
+        if Private.DebugExport and Private.DebugExport.PrintStatus then
+            Private.DebugExport.PrintStatus()
+        end
     elseif command == "dump" then
         HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "help" or command == "" then
@@ -200,6 +205,9 @@ local function UpdateTelemetry()
         if Private.TransitionState and Private.TransitionState.RecordNoPacket then
             Private.TransitionState.RecordNoPacket()
         end
+        if Private.DebugExport and Private.DebugExport.SyncNoPacket then
+            Private.DebugExport.SyncNoPacket()
+        end
         return
     end
 
@@ -243,6 +251,10 @@ local function UpdateTelemetry()
     if Private.TransitionState and Private.TransitionState.RecordPacket then
         Private.TransitionState.RecordPacket(packet)
     end
+
+    if Private.DebugExport and Private.DebugExport.Sync then
+        Private.DebugExport.Sync(packet)
+    end
 end
 
 --- Initializes the telemetry engine.
@@ -253,6 +265,9 @@ local function Init()
     end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()
+    end
+    if Private.DebugExport and Private.DebugExport.Init then
+        Private.DebugExport.Init()
     end
     Private.Renderer.Init()
     Private.DiagUI.Create()
