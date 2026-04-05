@@ -33,6 +33,7 @@ local motionState = {
     speedEma = 0,
     mounted = false,
     mountedHoldUntil = 0,
+    lastZoneHash = nil,
 }
 
 local motionConfig = {
@@ -140,6 +141,17 @@ local function ResolveZoneHash(unitDetail)
     return HashZone(zoneDescriptor)
 end
 
+local function ResetMotionState(zoneHash)
+    motionState.lastCoordX = nil
+    motionState.lastCoordZ = nil
+    motionState.lastSampleTime = nil
+    motionState.lastHeading = 0
+    motionState.speedEma = 0
+    motionState.mounted = false
+    motionState.mountedHoldUntil = 0
+    motionState.lastZoneHash = zoneHash
+end
+
 local function InferMotion(coordX, coordZ)
     local now = ReadNow()
     local heading = motionState.lastHeading or 0
@@ -226,6 +238,11 @@ function Gatherer.GetPacket()
     }
 
     packet.zoneHash = ResolveZoneHash(p)
+    if motionState.lastZoneHash ~= nil and motionState.lastZoneHash ~= packet.zoneHash then
+        ResetMotionState(packet.zoneHash)
+    elseif motionState.lastZoneHash == nil then
+        motionState.lastZoneHash = packet.zoneHash
+    end
 
     local inferredHeading, isMoving, speed, isMounted = InferMotion(packet.coordX, packet.coordZ)
     packet.facing = NormalizeProtocolAngle(inferredHeading)

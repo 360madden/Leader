@@ -16,8 +16,12 @@ namespace LeaderDecoder.Services
         [DllImport("user32.dll")]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll")]
+        private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
         private const uint WM_KEYDOWN = 0x0100;
         private const uint WM_KEYUP   = 0x0101;
+        private const uint MAPVK_VSC_TO_VK = 0x01;
 
         // Virtual Key codes (wParam) — RIFT uses these alongside ScanCodes
         private enum VK : ushort
@@ -71,45 +75,65 @@ namespace LeaderDecoder.Services
             _vkMap[(int)RiftKey.Num5]  = VK.Num5;
         }
 
-        private IntPtr BuildLParam(RiftKey key, bool isKeyUp)
+        private static IntPtr BuildLParam(byte scanCode, bool isKeyUp)
         {
-            uint sc = (uint)key;
+            uint sc = scanCode;
             uint lParam = (sc << 16) | 1;
             if (isKeyUp) lParam |= 0xC0000000;
             return (IntPtr)lParam;
         }
 
+        private static uint ResolveVirtualKey(byte scanCode)
+        {
+            uint mapped = MapVirtualKey(scanCode, MAPVK_VSC_TO_VK);
+            if (mapped != 0)
+            {
+                return mapped;
+            }
+
+            return scanCode < _vkMap.Length && _vkMap[scanCode] != 0
+                ? (uint)_vkMap[scanCode]
+                : 0;
+        }
+
         /// <summary>
         /// Sends a sustained key-down message (hold).
         /// </summary>
-        public void SendKeyDown(IntPtr hwnd, RiftKey key)
+        public virtual void SendScanCodeDown(IntPtr hwnd, byte scanCode)
         {
-            uint vk = (uint)_vkMap[(int)key];
-            PostMessage(hwnd, WM_KEYDOWN, (IntPtr)vk, BuildLParam(key, false));
+            uint vk = ResolveVirtualKey(scanCode);
+            PostMessage(hwnd, WM_KEYDOWN, (IntPtr)vk, BuildLParam(scanCode, false));
         }
 
         /// <summary>
         /// Sends a key-up message (release).
         /// </summary>
-        public void SendKeyUp(IntPtr hwnd, RiftKey key)
+        public virtual void SendScanCodeUp(IntPtr hwnd, byte scanCode)
         {
-            uint vk = (uint)_vkMap[(int)key];
-            PostMessage(hwnd, WM_KEYUP, (IntPtr)vk, BuildLParam(key, true));
+            uint vk = ResolveVirtualKey(scanCode);
+            PostMessage(hwnd, WM_KEYUP, (IntPtr)vk, BuildLParam(scanCode, true));
         }
 
         /// <summary>
         /// Non-blocking tap: fires keydown, schedules keyup asynchronously.
         /// Tap duration 60ms — long enough for RIFT to register, short enough not to chain-move.
         /// </summary>
-        public void TapKey(IntPtr hwnd, RiftKey key, int durationMs = 60)
+        public virtual void TapScanCode(IntPtr hwnd, byte scanCode, int durationMs = 60)
         {
-            SendKeyDown(hwnd, key);
+            SendScanCodeDown(hwnd, scanCode);
             // Fire-and-forget: releases key after durationMs without blocking caller
             Task.Run(async () =>
             {
                 await Task.Delay(durationMs);
-                SendKeyUp(hwnd, key);
+                SendScanCodeUp(hwnd, scanCode);
             });
         }
+
+        public virtual void SendKeyDown(IntPtr hwnd, RiftKey key) => SendScanCodeDown(hwnd, (byte)key);
+
+        public virtual void SendKeyUp(IntPtr hwnd, RiftKey key) => SendScanCodeUp(hwnd, (byte)key);
+
+        public virtual void TapKey(IntPtr hwnd, RiftKey key, int durationMs = 60) =>
+            TapScanCode(hwnd, (byte)key, durationMs);
     }
 }

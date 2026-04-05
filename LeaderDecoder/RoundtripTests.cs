@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Reflection;
@@ -63,6 +64,10 @@ namespace LeaderDecoder
             TestStationaryFollowerBypassesAngleGate();
             TestFollowReleasesWithinBand();
             TestAntiStuckClearsForwardState();
+            TestMountSyncUsesConfiguredKey();
+            TestAssistUsesConfiguredKey();
+            TestZoneChangeClearsHeadingHistory();
+            TestZoneMismatchStopsFollow();
             TestWindowFilterProcessIdOrder();
             TestWindowFilterHwndOrder();
             TestWindowSlotsPreserveMissingProcessIdEntries();
@@ -345,6 +350,115 @@ namespace LeaderDecoder
                 $"moving={moving[1]} err={lastError[1]} since={wSince[1]:O} dist={dist[1]}");
         }
 
+        private static void TestMountSyncUsesConfiguredKey()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings { KeyMount = (byte)InputEngine.RiftKey.Num1 };
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+
+            var leader = BuildState();
+            leader.IsMounted = true;
+
+            var follower = BuildState();
+            follower.IsMounted = false;
+            follower.CoordX = leader.CoordX;
+            follower.CoordZ = leader.CoordZ;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            bool ok = input.TappedScanCodes.Count == 1
+                && input.TappedScanCodes[0] == settings.KeyMount;
+            Assert("Follow [Mount sync uses configured key]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+        }
+
+        private static void TestAssistUsesConfiguredKey()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings { KeyInteract = (byte)InputEngine.RiftKey.Num2 };
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+
+            var leader = BuildState();
+            leader.HasTarget = true;
+
+            var follower = BuildState();
+            follower.HasTarget = false;
+            follower.CoordX = leader.CoordX;
+            follower.CoordZ = leader.CoordZ;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            bool ok = input.TappedScanCodes.Count == 1
+                && input.TappedScanCodes[0] == settings.KeyInteract;
+            Assert("Follow [Assist uses configured key]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+        }
+
+        private static void TestZoneChangeClearsHeadingHistory()
+        {
+            var nav = new NavigationKernel();
+
+            var first = BuildState();
+            first.ZoneHash = 1;
+            first.CoordX = 0f;
+            first.CoordZ = 0f;
+
+            var second = BuildState();
+            second.ZoneHash = 1;
+            second.CoordX = 0f;
+            second.CoordZ = 2f;
+            second.IsMoving = true;
+
+            var third = BuildState();
+            third.ZoneHash = 2;
+            third.CoordX = 50f;
+            third.CoordZ = 50f;
+            third.RawFacing = 0f;
+            third.IsMoving = false;
+
+            nav.UpdateHeading(1, first);
+            nav.UpdateHeading(1, second);
+            bool zoneChanged = nav.UpdateHeading(1, third);
+
+            bool ok = zoneChanged && !third.IsHeadingLocked && Math.Abs(third.EstimatedHeading) < 0.0001f;
+            Assert("Nav    [Zone change clears heading history]", ok,
+                $"zoneChanged={zoneChanged} locked={third.IsHeadingLocked} heading={third.EstimatedHeading:F4}");
+        }
+
+        private static void TestZoneMismatchStopsFollow()
+        {
+            var controller = new FollowController(new RecordingInputEngine(), new NavigationKernel(), new BridgeSettings());
+            var type = typeof(FollowController);
+
+            var movingField = type.GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
+            var wSinceField = type.GetField("_wForwardSince", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (movingField == null || wSinceField == null)
+            {
+                Assert("Follow [Zone mismatch stops follow]", false, "reflection lookup failed");
+                return;
+            }
+
+            var moving = (bool[])movingField.GetValue(controller)!;
+            var wSince = (DateTime[])wSinceField.GetValue(controller)!;
+
+            moving[1] = true;
+            wSince[1] = DateTime.Now;
+
+            var leader = BuildState();
+            leader.ZoneHash = 10;
+            leader.CoordZ = 20f;
+
+            var follower = BuildState();
+            follower.ZoneHash = 20;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            bool ok = !moving[1] && wSince[1] == DateTime.MinValue;
+            Assert("Follow [Zone mismatch stops follow]", ok,
+                $"moving={moving[1]} since={wSince[1]:O}");
+        }
+
         private static void TestWindowFilterProcessIdOrder()
         {
             var windows = new[]
@@ -438,6 +552,24 @@ namespace LeaderDecoder
             IsValid = true, IsAlive = true, PlayerHP = 255, TargetHP = 0,
             CoordX = 0, CoordY = 0, CoordZ = 0, RawFacing = 0, ZoneHash = 0
         };
+
+        private sealed class RecordingInputEngine : InputEngine
+        {
+            public List<byte> TappedScanCodes { get; } = new();
+
+            public override void TapScanCode(IntPtr hwnd, byte scanCode, int durationMs = 60)
+            {
+                TappedScanCodes.Add(scanCode);
+            }
+
+            public override void SendScanCodeDown(IntPtr hwnd, byte scanCode)
+            {
+            }
+
+            public override void SendScanCodeUp(IntPtr hwnd, byte scanCode)
+            {
+            }
+        }
 
         private static void Assert(string label, bool condition, string failMsg = "")
         {

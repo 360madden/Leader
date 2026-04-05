@@ -51,6 +51,12 @@ namespace LeaderDecoder.Services
         {
             if (!follower.IsValid || !leader.IsValid || slot == 0) return;
 
+            if (follower.ZoneHash != 0 && leader.ZoneHash != 0 && follower.ZoneHash != leader.ZoneHash)
+            {
+                EmergencyStop(slot, hwnd);
+                return;
+            }
+
             // ── 0. Death guard ────────────────────────────────────────────
             if (!follower.IsAlive)
             {
@@ -71,7 +77,7 @@ namespace LeaderDecoder.Services
 
             if (!needsMotionBootstrap && Math.Abs(steerPower) > _settings.AngleTolerance)
             {
-                _input.TapKey(hwnd, steerPower > 0 ? InputEngine.RiftKey.D : InputEngine.RiftKey.A);
+                _input.TapScanCode(hwnd, steerPower > 0 ? _settings.KeyRight : _settings.KeyLeft);
             }
 
             // ── 2. Movement + Anti-Stuck Watchdog ─────────────────────────
@@ -85,7 +91,7 @@ namespace LeaderDecoder.Services
                 if (!_isMovingForward[slot]
                     && (canBootstrapHeading || Math.Abs(error) < _settings.AngleTolerance * 2.5f))
                 {
-                    _input.SendKeyDown(hwnd, InputEngine.RiftKey.W);
+                    _input.SendScanCodeDown(hwnd, _settings.KeyForward);
                     _isMovingForward[slot]  = true;
                     _wForwardSince[slot]    = DateTime.Now;
                     _distanceAtPress[slot]  = distance;
@@ -99,15 +105,15 @@ namespace LeaderDecoder.Services
                     {
                         // Anti-stuck: break the held-forward state so the next frames can
                         // re-steer and re-arm movement from a clean baseline.
-                        _input.SendKeyUp(hwnd, InputEngine.RiftKey.W);
+                        _input.SendScanCodeUp(hwnd, _settings.KeyForward);
                         ResetForwardState(slot);
-                        _input.TapKey(hwnd, InputEngine.RiftKey.Space);
+                        _input.TapScanCode(hwnd, _settings.KeyJump);
                     }
                 }
             }
             else if (_isMovingForward[slot])
             {
-                _input.SendKeyUp(hwnd, InputEngine.RiftKey.W);
+                _input.SendScanCodeUp(hwnd, _settings.KeyForward);
                 ResetForwardState(slot);
             }
 
@@ -116,7 +122,7 @@ namespace LeaderDecoder.Services
             {
                 if ((DateTime.Now - _lastMountAttempt[slot]).TotalSeconds > 5)
                 {
-                    _input.TapKey(hwnd, InputEngine.RiftKey.M);
+                    _input.TapScanCode(hwnd, _settings.KeyMount);
                     _lastMountAttempt[slot] = DateTime.Now;
                 }
             }
@@ -126,7 +132,7 @@ namespace LeaderDecoder.Services
             {
                 if ((DateTime.Now - _lastAssistAttempt[slot]).TotalSeconds > AssistCooldownSec)
                 {
-                    _input.TapKey(hwnd, InputEngine.RiftKey.F);
+                    _input.TapScanCode(hwnd, _settings.KeyInteract);
                     _lastAssistAttempt[slot] = DateTime.Now;
                 }
             }
@@ -134,10 +140,10 @@ namespace LeaderDecoder.Services
 
         public void EmergencyStop(int slot, IntPtr hwnd)
         {
-            _input.SendKeyUp(hwnd, InputEngine.RiftKey.W);
-            _input.SendKeyUp(hwnd, InputEngine.RiftKey.A);
-            _input.SendKeyUp(hwnd, InputEngine.RiftKey.S);
-            _input.SendKeyUp(hwnd, InputEngine.RiftKey.D);
+            _input.SendScanCodeUp(hwnd, _settings.KeyForward);
+            _input.SendScanCodeUp(hwnd, _settings.KeyLeft);
+            _input.SendScanCodeUp(hwnd, _settings.KeyBack);
+            _input.SendScanCodeUp(hwnd, _settings.KeyRight);
 
             if (slot > 0 && slot < _isMovingForward.Length)
             {
