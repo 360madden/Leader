@@ -31,11 +31,11 @@ Transmits real-time 3D spatial telemetry from the Leader game instance to up to 
 | 2 | 8 | CoordX low | CoordX mid | CoordX high | **X coordinate** |
 | 3 | 12 | CoordY low | CoordY mid | CoordY high | **Y (elevation)** |
 | 4 | 16 | CoordZ low | CoordZ mid | CoordZ high | **Z coordinate** |
-| 5 | 20 | facing low | facing high | zone hash | **Heading + Zone** |
+| 5 | 20 | heading low | heading high | zone hash | **Movement heading + Zone** |
 | 6 | 24 | target ID R | target ID G | target ID B | **Target hash** |
 
 **Coordinate encoding:** `n = floor(val × 10) + 8388608` — range ±838 860 m, 0.1 m precision  
-**Heading encoding:** `n = floor(radian × 10000)` — range 0 → 2π, ~0.0001 rad precision  
+**Heading encoding:** `n = floor(radian × 10000)` — range 0 → 2π, ~0.0001 rad precision. This is the leader's derived travel heading from recent coordinate deltas, not a documented unit-facing field.  
 **Flags bitfield:** bit 0=Combat, 1=HasTarget, 2=IsMoving, 3=IsAlive, 4=IsMounted
 
 ---

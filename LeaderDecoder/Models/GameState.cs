@@ -26,6 +26,12 @@ namespace LeaderDecoder.Models
         public float RawFacing { get; set; }
 
         // Estimated Data (Computed by NavigationKernel)
+        public float VelocityX { get; set; }
+        public float VelocityZ { get; set; }
+        public float SmoothedVelocityX { get; set; }
+        public float SmoothedVelocityZ { get; set; }
+        public float TravelSpeed { get; set; }
+        public bool HasTravelVector { get; set; }
         public float EstimatedHeading { get; set; }
         public bool IsHeadingLocked { get; set; }
     }

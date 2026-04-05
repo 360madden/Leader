@@ -6,86 +6,161 @@ using LeaderDecoder.Models;
 namespace LeaderDecoder.Services
 {
     /// <summary>
-    /// LEADER NAVIGATION KERNEL v1.1
-    /// High-precision spatial analysis, heading estimation, and zone-change detection.
+    /// LEADER NAVIGATION KERNEL v1.2
+    /// Motion-first spatial analysis:
+    /// - derives travel direction from coordinate deltas, not unit facing
+    /// - keeps a breadcrumb trail for trailing-point pursuit
+    /// - resets motion history cleanly across zone changes / teleports
     /// </summary>
     public class NavigationKernel
     {
-        private const int   MaxHistory           = 12;
-        private const float MinMovementThreshold = 0.08f; // Metres — filters GPS noise
+        private const int MaxHistory = 48;
+        private const int MaxDirectionSegments = 8;
+        private const float MinMovementThreshold = 0.08f;
+        private const float MinTravelSpeed = 0.35f;
+        private const float MaxTeleportDistance = 35.0f;
+        private const double MaxSegmentGapSeconds = 0.75;
+        private const float DefaultPredictionSeconds = 0.20f;
 
-        private readonly Dictionary<int, Queue<Vector2>> _posHistory = new();
-        private readonly Dictionary<int, float>          _smoothedHeading = new();
-        private readonly Dictionary<int, byte>           _lastZoneHash = new();
+        private readonly Dictionary<int, List<MotionSample>> _history = new();
+        private readonly Dictionary<int, byte> _lastZoneHash = new();
 
-        // Heading smoothing weights — exponential moving average
-        private const float HeadingAlpha = 0.25f;
+        private readonly record struct MotionSample(Vector2 Position, DateTime Timestamp);
 
         /// <summary>
-        /// Updates heading and zone-change state for a given slot.
+        /// Updates motion history and zone-change state for a given slot.
         /// Returns true if a zone-change was detected (caller should abort pursuit).
         /// </summary>
         public bool UpdateHeading(int slot, GameState state)
         {
-            if (!state.IsValid) return false;
+            if (!state.IsValid)
+            {
+                return false;
+            }
 
-            // ── Zone-change detection ──────────────────────────────────────
             bool zoneChanged = false;
             if (_lastZoneHash.TryGetValue(slot, out byte prevZone) && prevZone != state.ZoneHash)
             {
                 zoneChanged = true;
-                // Clear positional history so stale vectors don't corrupt the new zone heading
-                if (_posHistory.ContainsKey(slot)) _posHistory[slot].Clear();
-                if (_smoothedHeading.ContainsKey(slot)) _smoothedHeading.Remove(slot);
-            }
-            _lastZoneHash[slot] = state.ZoneHash;
-
-            // ── Primary: use RawFacing from Lua telemetry (most accurate) ──
-            if (!_posHistory.ContainsKey(slot))
-                _posHistory[slot] = new Queue<Vector2>();
-
-            var currentPos = new Vector2(state.CoordX, state.CoordZ);
-            var history    = _posHistory[slot];
-
-            float rawFacing = state.RawFacing;
-
-            // ── Secondary / Fallback: historical movement vector ───────────
-            bool hasGoodVector = false;
-            if (history.Count > 0)
-            {
-                var oldPos    = history.Peek();
-                var direction = currentPos - oldPos;
-
-                if (direction.Length() > MinMovementThreshold)
+                if (_history.ContainsKey(slot))
                 {
-                    // RIFT coordinate system: X+ = East, Z+ = South
-                    // Atan2 in standard math: Atan2(y, x). Here our "forward Y" is Z axis.
-                    float vectorHeading = (float)Math.Atan2(direction.X, direction.Y);
-                    hasGoodVector = true;
-
-                    // Blend: if RawFacing is near-zero AND we have movement, trust vector
-                    if (rawFacing < 0.001f && state.IsMoving)
-                        rawFacing = vectorHeading;
+                    _history[slot].Clear();
                 }
             }
 
-            // ── Exponential smoothing to suppress jitter ───────────────────
-            if (!_smoothedHeading.TryGetValue(slot, out float prevSmoothed))
-                prevSmoothed = rawFacing;
+            _lastZoneHash[slot] = state.ZoneHash;
 
-            // Angle-aware lerp (handles wrap-around correctly)
-            float delta = NormalizeAngle(rawFacing - prevSmoothed);
-            float smoothed = prevSmoothed + HeadingAlpha * delta;
-            _smoothedHeading[slot] = NormalizeAngle(smoothed);
+            Vector2 currentPos = new(state.CoordX, state.CoordZ);
+            List<MotionSample> history = GetHistory(slot);
+            DateTime now = DateTime.UtcNow;
 
-            state.EstimatedHeading = _smoothedHeading[slot];
-            state.IsHeadingLocked  = rawFacing > 0.001f || hasGoodVector;
+            if (history.Count > 0)
+            {
+                MotionSample previous = history[^1];
+                double gapSeconds = (now - previous.Timestamp).TotalSeconds;
+                float displacement = Vector2.Distance(previous.Position, currentPos);
+                if (gapSeconds > MaxSegmentGapSeconds || displacement >= MaxTeleportDistance)
+                {
+                    history.Clear();
+                }
+            }
 
-            // Store position
-            history.Enqueue(currentPos);
-            if (history.Count > MaxHistory) history.Dequeue();
+            if (history.Count > 0)
+            {
+                MotionSample previous = history[^1];
+                double dt = (now - previous.Timestamp).TotalSeconds;
+                if (dt > 0 && dt <= MaxSegmentGapSeconds)
+                {
+                    Vector2 velocity = (currentPos - previous.Position) / (float)dt;
+                    state.VelocityX = velocity.X;
+                    state.VelocityZ = velocity.Y;
+                }
+                else
+                {
+                    state.VelocityX = 0f;
+                    state.VelocityZ = 0f;
+                }
+            }
+            else
+            {
+                state.VelocityX = 0f;
+                state.VelocityZ = 0f;
+            }
+
+            history.Add(new MotionSample(currentPos, now));
+            if (history.Count > MaxHistory)
+            {
+                history.RemoveAt(0);
+            }
+
+            Vector2 smoothedVelocity = ComputeSmoothedVelocity(history);
+            state.SmoothedVelocityX = smoothedVelocity.X;
+            state.SmoothedVelocityZ = smoothedVelocity.Y;
+            state.TravelSpeed = smoothedVelocity.Length();
+            state.HasTravelVector = state.TravelSpeed >= MinTravelSpeed;
+
+            if (state.HasTravelVector)
+            {
+                state.EstimatedHeading = NormalizeAngle((float)Math.Atan2(smoothedVelocity.X, smoothedVelocity.Y));
+                state.IsHeadingLocked = true;
+            }
+            else
+            {
+                state.EstimatedHeading = 0f;
+                state.IsHeadingLocked = false;
+            }
 
             return zoneChanged;
+        }
+
+        /// <summary>
+        /// Resolves a stable follow point by trailing backwards along the leader's recent path.
+        /// Falls back to the leader position when no usable breadcrumb trail exists.
+        /// </summary>
+        public (float X, float Z) ResolveFollowTarget(
+            int slot,
+            GameState leader,
+            float trailingDistance,
+            float predictionSeconds = DefaultPredictionSeconds)
+        {
+            Vector2 anchor = new(leader.CoordX, leader.CoordZ);
+            if (leader.HasTravelVector)
+            {
+                anchor += new Vector2(leader.SmoothedVelocityX, leader.SmoothedVelocityZ) * Math.Max(0f, predictionSeconds);
+            }
+
+            if (!_history.TryGetValue(slot, out List<MotionSample>? history) || history.Count == 0 || trailingDistance <= 0f)
+            {
+                return (anchor.X, anchor.Y);
+            }
+
+            Vector2 current = anchor;
+            float remaining = trailingDistance;
+
+            for (int index = history.Count - 1; index >= 0; index--)
+            {
+                Vector2 older = history[index].Position;
+                float segmentLength = Vector2.Distance(current, older);
+
+                if (segmentLength < 0.001f)
+                {
+                    current = older;
+                    continue;
+                }
+
+                if (segmentLength >= remaining)
+                {
+                    float t = remaining / segmentLength;
+                    Vector2 point = Vector2.Lerp(current, older, t);
+                    return (point.X, point.Y);
+                }
+
+                remaining -= segmentLength;
+                current = older;
+            }
+
+            Vector2 oldest = history[0].Position;
+            return (oldest.X, oldest.Y);
         }
 
         /// <summary>
@@ -96,7 +171,6 @@ namespace LeaderDecoder.Services
         {
             float dx = leader.CoordX - follower.CoordX;
             float dz = leader.CoordZ - follower.CoordZ;
-            // Atan2(dz, dx) would be standard math; RIFT rotates ~90° so we swap args
             return NormalizeAngle((float)Math.Atan2(dx, dz));
         }
 
@@ -130,9 +204,63 @@ namespace LeaderDecoder.Services
             return Math.Abs(a.CoordY - b.CoordY) > maxDelta;
         }
 
+        private List<MotionSample> GetHistory(int slot)
+        {
+            if (!_history.TryGetValue(slot, out List<MotionSample>? history))
+            {
+                history = new List<MotionSample>(MaxHistory);
+                _history[slot] = history;
+            }
+
+            return history;
+        }
+
+        private static Vector2 ComputeSmoothedVelocity(List<MotionSample> history)
+        {
+            if (history.Count < 2)
+            {
+                return Vector2.Zero;
+            }
+
+            Vector2 weightedVelocity = Vector2.Zero;
+            float totalWeight = 0f;
+            int usedSegments = 0;
+
+            for (int index = history.Count - 1; index > 0 && usedSegments < MaxDirectionSegments; index--)
+            {
+                MotionSample newer = history[index];
+                MotionSample older = history[index - 1];
+
+                double dt = (newer.Timestamp - older.Timestamp).TotalSeconds;
+                if (dt <= 0 || dt > MaxSegmentGapSeconds)
+                {
+                    continue;
+                }
+
+                Vector2 delta = newer.Position - older.Position;
+                if (delta.Length() < MinMovementThreshold)
+                {
+                    continue;
+                }
+
+                float weight = MaxDirectionSegments - usedSegments;
+                Vector2 velocity = delta / (float)dt;
+                weightedVelocity += velocity * weight;
+                totalWeight += weight;
+                usedSegments++;
+            }
+
+            if (totalWeight <= 0f)
+            {
+                return Vector2.Zero;
+            }
+
+            return weightedVelocity / totalWeight;
+        }
+
         private static float NormalizeAngle(float angle)
         {
-            while (angle >  Math.PI) angle -= (float)(2 * Math.PI);
+            while (angle > Math.PI) angle -= (float)(2 * Math.PI);
             while (angle < -Math.PI) angle += (float)(2 * Math.PI);
             return angle;
         }

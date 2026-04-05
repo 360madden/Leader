@@ -30,7 +30,7 @@ end
 -- Precision: ~0.0001 rad  |   Range: 0 → 2π (6.2832)
 -- Formula:   radVal = floor(radian * 10000)  [fits in 16 bits: max 62832]
 -- Layout:    R=low byte, G=high byte, B=zone hash
--- Note: No offset needed — RIFT facing is always [0, 2π]
+-- Note: This carries the leader's derived movement heading, not a documented unit-facing field.
 -- This matches: TelemetryService.cs  (ph.R + ph.G*256) / 10000.0f
 -- ──────────────────────────────────────────────────────────────────────────────
 function Encoder.PackHeading(radian, zoneHash)

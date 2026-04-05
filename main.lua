@@ -87,7 +87,7 @@ local function UpdateTelemetry()
     local r4, g4, b4 = Private.Encoder.PackCoord(packet.coordZ)
     Private.Renderer.SetPixel(4, r4, g4, b4)
 
-    -- 7. Pixel 5: Heading (facing radians) + Zone hash (B channel)
+    -- 7. Pixel 5: Movement heading (derived from coordinate deltas) + Zone hash (B channel)
     local r5, g5, b5 = Private.Encoder.PackHeading(packet.facing, packet.zoneHash)
     Private.Renderer.SetPixel(5, r5, g5, b5)
 

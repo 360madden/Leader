@@ -232,7 +232,7 @@ namespace LeaderDecoder
                         // UI Dashboard
                         string zoneFlag = zoneChanged ? " [ZONE!]" : "       ";
                         string headingText = state.IsHeadingLocked ? $"{state.EstimatedHeading,5:F2}" : " --- ";
-                        string status = $"HP:{state.PlayerHP,3:D3} THP:{state.TargetHP,5:D5} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | F:{state.RawFacing,5:F2}({headingText})";
+                        string status = $"HP:{state.PlayerHP,3:D3} THP:{state.TargetHP,5:D5} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | MH:{state.RawFacing,5:F2}({headingText})";
                         string flagStr = $"{(state.IsCombat ? "[CB]" : "    ")} {(state.IsMounted ? "[MT]" : "    ")} {(state.IsAlive ? "    " : "[DEAD]")}{zoneFlag}";
                         Console.ForegroundColor = zoneChanged ? ConsoleColor.Yellow : ConsoleColor.Gray;
                         string identity = (i < slots.Count && slots[i].Window is not null)

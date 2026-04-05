@@ -32,7 +32,7 @@ namespace LeaderDecoder.Services
 
                 if (!File.Exists(CsvPath))
                 {
-                    File.WriteAllText(CsvPath, "Timestamp,Slot,X,Y,Z,Facing,HP,Flags\n");
+                    File.WriteAllText(CsvPath, "Timestamp,Slot,X,Y,Z,MotionHeading,HP,Flags\n");
                 }
             }
             catch (Exception ex)
