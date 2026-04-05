@@ -54,6 +54,10 @@ namespace LeaderDecoder
             TestZoneHash("Max hash",    255);
             TestZoneHash("Mid hash",    128);
 
+            // ── Player tag passthrough ───────────────────────────────────
+            TestPlayerTag("Exact tag", "BOB1", "BOB1");
+            TestPlayerTag("Normalized tag", "ab-cd", "ABCD");
+
             // ── Flag bitfield ────────────────────────────────────────────
             TestFlags("All clear",     false, false, false, false, false);
             TestFlags("Combat only",   true,  false, false, true,  false);
@@ -155,6 +159,16 @@ namespace LeaderDecoder
             var state = BuildState(); state.ZoneHash = hash;
             var decoded = svc.Decode(sim.Generate(state));
             Assert($"Zone   [{name}] ({hash})", decoded.ZoneHash == hash, $"got {decoded.ZoneHash}");
+        }
+
+        private static void TestPlayerTag(string name, string tag, string expected)
+        {
+            var sim = new TelemetrySimulator();
+            var svc = new TelemetryService();
+            var state = BuildState();
+            state.PlayerTag = tag;
+            var decoded = svc.Decode(sim.Generate(state));
+            Assert($"Tag    [{name}] ({tag}->{expected})", decoded.PlayerTag == expected, $"got {decoded.PlayerTag}");
         }
 
         private static void TestFlags(string name, bool combat, bool target, bool moving, bool alive, bool mounted)

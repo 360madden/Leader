@@ -13,6 +13,10 @@ namespace LeaderDecoder.Services
     /// </summary>
     public class TelemetryService
     {
+        private const string PlayerTagAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+        private const int PlayerTagLength = 4;
+        private const int PlayerTagBase = 37;
+
         private static readonly SampleProfile[] Profiles =
         {
             new SampleProfile("native-4x4", new[] { 2, 6, 10, 14, 18, 22, 26 }, 2),
@@ -79,7 +83,7 @@ namespace LeaderDecoder.Services
                         state.ZoneHash = p5.B;
 
                         var p6 = ReadAt(profile.SampleXs[6], profile.SampleY);
-                        state.TargetHash = $"{p6.R:X2}{p6.G:X2}{p6.B:X2}";
+                        state.PlayerTag = DecodePlayerTag(p6);
 
                         return state;
                     }
@@ -91,6 +95,71 @@ namespace LeaderDecoder.Services
             {
                 bmp.UnlockBits(bd);
             }
+        }
+
+        public static string DecodePlayerTag(Color c)
+        {
+            int packed = c.R + c.G * 256 + c.B * 65536;
+            char[] chars = new char[PlayerTagLength];
+
+            for (int index = PlayerTagLength - 1; index >= 0; index--)
+            {
+                int value = packed % PlayerTagBase;
+                packed /= PlayerTagBase;
+                chars[index] = PlayerTagAlphabet[value];
+            }
+
+            return new string(chars);
+        }
+
+        public static Color EncodePlayerTag(string? tag)
+        {
+            string normalized = NormalizePlayerTag(tag);
+            int packed = 0;
+
+            for (int index = 0; index < normalized.Length; index++)
+            {
+                int value = PlayerTagAlphabet.IndexOf(normalized[index]);
+                if (value < 0)
+                {
+                    value = PlayerTagAlphabet.Length - 1;
+                }
+
+                packed = packed * PlayerTagBase + value;
+            }
+
+            return Color.FromArgb(packed & 0xFF, (packed >> 8) & 0xFF, (packed >> 16) & 0xFF);
+        }
+
+        private static string NormalizePlayerTag(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                return "____";
+            }
+
+            char[] chars = new char[PlayerTagLength];
+            int writeIndex = 0;
+
+            foreach (char raw in tag.ToUpperInvariant())
+            {
+                if ((raw >= 'A' && raw <= 'Z') || (raw >= '0' && raw <= '9') || raw == '_')
+                {
+                    chars[writeIndex++] = raw;
+                }
+
+                if (writeIndex == PlayerTagLength)
+                {
+                    break;
+                }
+            }
+
+            while (writeIndex < PlayerTagLength)
+            {
+                chars[writeIndex++] = '_';
+            }
+
+            return new string(chars);
         }
 
         private static bool ProfileFits(SampleProfile profile, int width, int height)

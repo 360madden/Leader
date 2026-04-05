@@ -133,7 +133,7 @@ namespace LeaderDecoder.Services
                 $"Decoded state: VALID | HP={state.PlayerHP} TargetHP={state.TargetHP} Flags=" +
                 $"{(state.IsCombat ? "CB " : "")}{(state.HasTarget ? "TGT " : "")}{(state.IsMoving ? "MOV " : "")}{(state.IsAlive ? "ALIVE " : "")}{(state.IsMounted ? "MT" : "")}".Trim(),
                 $"Coords: X={state.CoordX:F1} Y={state.CoordY:F1} Z={state.CoordZ:F1}",
-                $"Facing: {state.RawFacing:F4} rad | ZoneHash={state.ZoneHash} | TargetHash={state.TargetHash}"
+                $"Facing: {state.RawFacing:F4} rad | ZoneHash={state.ZoneHash} | PlayerTag={state.PlayerTag}"
             });
         }
 

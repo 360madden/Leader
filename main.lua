@@ -91,8 +91,8 @@ local function UpdateTelemetry()
     local r5, g5, b5 = Private.Encoder.PackHeading(packet.facing, packet.zoneHash)
     Private.Renderer.SetPixel(5, r5, g5, b5)
 
-    -- 8. Pixel 6: Target identity hash
-    local r6, g6, b6 = Private.Encoder.PackHash(packet.targetID)
+    -- 8. Pixel 6: Player identity tag
+    local r6, g6, b6 = Private.Encoder.PackPlayerTag(packet.playerTag)
     Private.Renderer.SetPixel(6, r6, g6, b6)
 
     -- 9. Update in-game Diagnostic UI (only if visible)

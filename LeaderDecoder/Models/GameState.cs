@@ -19,7 +19,7 @@ namespace LeaderDecoder.Models
         public float CoordZ { get; set; }
         
         // Identity
-        public string TargetHash { get; set; } = string.Empty;
+        public string PlayerTag { get; set; } = "____";
         public byte ZoneHash { get; set; }
 
         // Telemetry Data (Raw from Lua)

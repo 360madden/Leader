@@ -40,8 +40,8 @@ namespace LeaderDecoder.Services
             // Pixel 5: Facing (Radians) & Zone
             SetSimPixel(bmp, 5, EncodeFacing(state));
 
-            // Pixel 6: Reserved
-            SetSimPixel(bmp, 6, Color.Black);
+            // Pixel 6: Player tag
+            SetSimPixel(bmp, 6, TelemetryService.EncodePlayerTag(state.PlayerTag));
 
             return bmp;
         }

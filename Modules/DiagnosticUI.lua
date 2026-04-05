@@ -23,7 +23,7 @@ function DiagUI.Create()
     _panel = UI.CreateFrame("Frame", "LeaderDiagPanel", ctx)
     _panel:SetBackgroundColor(0.05, 0.05, 0.05, 0.82)
     _panel:SetWidth(230)
-    _panel:SetHeight(160)
+    _panel:SetHeight(176)
     _panel:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 8, 8)
     _panel:SetVisible(false)
 
@@ -65,6 +65,7 @@ function DiagUI.Update(packet)
         "Y (elev): %6.2f\n"..
         "Heading:  %6.4f rad\n"..
         "Speed:    %6.2f m/s\n"..
+        "Tag:      %s\n"..
         "Zone:     %3d   %s\n"..
         "HP:  %3d%%   Tgt HP: %3d%%\n"..
         "Combat: %-3s  Target: %-3s\n"..
@@ -73,6 +74,7 @@ function DiagUI.Update(packet)
         packet.coordY or 0,
         packet.facing or 0,
         packet.motionSpeed or 0,
+        packet.playerTag or "____",
         packet.zoneHash or 0, isMounted,
         math.floor(((packet.playerHP or 0) / 255) * 100),
         math.floor(((packet.targetHP or 0) / 255) * 100),

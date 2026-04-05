@@ -236,9 +236,9 @@ namespace LeaderDecoder
                         string flagStr = $"{(state.IsCombat ? "[CB]" : "    ")} {(state.IsMounted ? "[MT]" : "    ")} {(state.IsAlive ? "    " : "[DEAD]")}{zoneFlag}";
                         Console.ForegroundColor = zoneChanged ? ConsoleColor.Yellow : ConsoleColor.Gray;
                         string identity = (i < slots.Count && slots[i].Window is not null)
-                            ? RiftWindowService.FormatCompactIdentity(slots[i].Window!)
+                            ? $"{state.PlayerTag}@{RiftWindowService.FormatCompactIdentity(slots[i].Window!)}"
                             : "SIM_LEAD";
-                        Console.WriteLine($" SLOT[{i + 1}] {identity,-26} | {status} | {flagStr}");
+                        Console.WriteLine($" SLOT[{i + 1}] {identity,-31} | {status} | {flagStr}");
                         Console.ForegroundColor = ConsoleColor.Gray;
                     }
                     else
@@ -257,7 +257,7 @@ namespace LeaderDecoder
                         }
 
                         string identity = RiftWindowService.FormatExpectedIdentity(i < slots.Count ? slots[i] : null);
-                        Console.WriteLine($" SLOT[{i + 1}] {identity,-26} | -- STANDBY --                                                              ");
+                        Console.WriteLine($" SLOT[{i + 1}] {identity,-31} | -- STANDBY --                                                         ");
                     }
                 }
 

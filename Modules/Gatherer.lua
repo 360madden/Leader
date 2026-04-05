@@ -141,6 +141,33 @@ local function ResolveZoneHash(unitDetail)
     return HashZone(zoneDescriptor)
 end
 
+local function BuildPlayerTag(unitDetail)
+    local raw = nil
+    if unitDetail then
+        raw = unitDetail.name or unitDetail.id
+    end
+
+    raw = string.upper(tostring(raw or "____"))
+
+    local chars = {}
+    for i = 1, #raw do
+        local ch = string.sub(raw, i, i)
+        if string.match(ch, "[A-Z0-9_]") then
+            table.insert(chars, ch)
+        end
+
+        if #chars == 4 then
+            break
+        end
+    end
+
+    while #chars < 4 do
+        table.insert(chars, "_")
+    end
+
+    return table.concat(chars)
+end
+
 local function ResetMotionState(zoneHash)
     motionState.lastCoordX = nil
     motionState.lastCoordZ = nil
@@ -234,6 +261,7 @@ function Gatherer.GetPacket()
         facing   = 0,
         zoneHash = 0,
         targetID = targetUnitId or (t and t.id) or nil,
+        playerTag = BuildPlayerTag(p),
         motionSpeed = 0,
     }
 

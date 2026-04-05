@@ -63,19 +63,32 @@ function Encoder.PackState(playerHP, targetHP, flags)
 end
 
 -- ──────────────────────────────────────────────────────────────────────────────
--- HASH PACK  (Pixel 6)
--- Derives a 3-byte identity from the last 6 hex characters of the Unit ID.
+-- PLAYER TAG PACK  (Pixel 6)
+-- Encodes a 4-character player tag using a 37-symbol alphabet:
+--   A-Z, 0-9, _
+-- This yields a compact human-readable label for the bridge console.
 -- ──────────────────────────────────────────────────────────────────────────────
-function Encoder.PackHash(id)
-    if not id then return 0, 0, 0 end
-    local s = tostring(id)
-    local last6 = string.sub(s, -6)
-    if #last6 < 6 then
-        last6 = string.rep("0", 6 - #last6) .. last6
+local tagAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+local tagBase = 37
+
+function Encoder.PackPlayerTag(tag)
+    local s = tostring(tag or "____")
+    local n = 0
+
+    for i = 1, 4 do
+        local ch = string.sub(s, i, i)
+        if ch == "" then
+            ch = "_"
+        end
+
+        local index = string.find(tagAlphabet, ch, 1, true)
+        local value = index and (index - 1) or 36
+        n = n * tagBase + value
     end
-    local r = tonumber(string.sub(last6, 1, 2), 16) or 0
-    local g = tonumber(string.sub(last6, 3, 4), 16) or 0
-    local b = tonumber(string.sub(last6, 5, 6), 16) or 0
+
+    local r = n % 256
+    local g = math.floor(n / 256) % 256
+    local b = math.floor(n / 65536) % 256
     return r / 255, g / 255, b / 255
 end
 
