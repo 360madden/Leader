@@ -6,6 +6,12 @@ local Gatherer = {}
 -- LEADER TELEMETRY GATHERER v1.1
 -- High-frequency RIFT Inspect API polling with robust error handling.
 -- Returns a fully populated telemetry packet or nil on failure.
+--
+-- Notes:
+-- RIFT's documented Inspect.Unit.Detail payload exposes coordinates and zone ID,
+-- but not direct facing / moving / mounted members. We therefore derive motion
+-- heading from successive coordinate samples and infer mount state from sustained
+-- travel speed.
 --]]
 
 -- Zone hash: computes a stable 0-255 byte from the zone name string.
@@ -17,6 +23,153 @@ local function HashZone(zoneStr)
         h = (h * 31 + string.byte(s, i)) % 256
     end
     return h
+end
+
+local motionState = {
+    lastCoordX = nil,
+    lastCoordZ = nil,
+    lastSampleTime = nil,
+    lastHeading = 0,
+    speedEma = 0,
+    mounted = false,
+    mountedHoldUntil = 0,
+}
+
+local motionConfig = {
+    minDistance = 0.05,       -- metres per sample; filters idle jitter
+    minSpeed = 0.75,          -- metres per second; confirms meaningful movement
+    headingAlpha = 0.35,      -- angle smoothing for inferred heading
+    speedAlpha = 0.20,        -- EMA smoothing for movement speed
+    maxDeltaTime = 0.50,      -- ignore stale samples after loading hitches
+    mountedSetSpeed = 8.00,   -- sustained speed indicating mount travel
+    mountedClearSpeed = 5.50, -- hysteresis floor before clearing mounted state
+    mountedHoldSeconds = 4.00 -- keeps mount state while briefly stationary
+}
+
+local TWO_PI = math.pi * 2
+
+local function NormalizeAngle(angle)
+    while angle > math.pi do
+        angle = angle - TWO_PI
+    end
+
+    while angle <= -math.pi do
+        angle = angle + TWO_PI
+    end
+
+    return angle
+end
+
+local function Atan2(y, x)
+    if x > 0 then
+        return math.atan(y / x)
+    end
+
+    if x < 0 then
+        if y >= 0 then
+            return math.atan(y / x) + math.pi
+        end
+
+        return math.atan(y / x) - math.pi
+    end
+
+    if y > 0 then
+        return math.pi / 2
+    end
+
+    if y < 0 then
+        return -math.pi / 2
+    end
+
+    return 0
+end
+
+local function ReadNow()
+    if Inspect and Inspect.Time and Inspect.Time.Real then
+        local ok, now = pcall(Inspect.Time.Real)
+        now = tonumber(now)
+        if ok and now and now > 0 then
+            return now
+        end
+    end
+
+    if Inspect and Inspect.Time and Inspect.Time.Frame then
+        local ok, now = pcall(Inspect.Time.Frame)
+        now = tonumber(now)
+        if ok and now and now > 0 then
+            return now
+        end
+    end
+
+    return 0
+end
+
+local function ResolveZoneHash(unitDetail)
+    local zoneId = unitDetail and unitDetail.zone
+    if zoneId == nil then
+        return 0
+    end
+
+    local zoneDescriptor = tostring(zoneId)
+    if Inspect and Inspect.Zone and Inspect.Zone.Detail then
+        local ok, zoneDetail = pcall(Inspect.Zone.Detail, zoneId)
+        if ok and zoneDetail then
+            local zoneName = zoneDetail.name or zoneDetail.id
+            if zoneName ~= nil then
+                zoneDescriptor = tostring(zoneName) .. "|" .. tostring(zoneDetail.id or zoneId)
+            end
+        end
+    end
+
+    return HashZone(zoneDescriptor)
+end
+
+local function InferMotion(coordX, coordZ)
+    local now = ReadNow()
+    local heading = motionState.lastHeading or 0
+    local speed = 0
+    local isMoving = false
+
+    if motionState.lastCoordX ~= nil
+        and motionState.lastCoordZ ~= nil
+        and motionState.lastSampleTime ~= nil
+        and now > motionState.lastSampleTime then
+        local dx = coordX - motionState.lastCoordX
+        local dz = coordZ - motionState.lastCoordZ
+        local dt = now - motionState.lastSampleTime
+        local distance = math.sqrt(dx * dx + dz * dz)
+
+        if dt > 0 and dt <= motionConfig.maxDeltaTime then
+            speed = distance / dt
+            if distance >= motionConfig.minDistance and speed >= motionConfig.minSpeed then
+                local measuredHeading = Atan2(dx, dz)
+                local delta = NormalizeAngle(measuredHeading - heading)
+                heading = NormalizeAngle(heading + delta * motionConfig.headingAlpha)
+                isMoving = true
+            end
+        end
+    end
+
+    motionState.speedEma = motionState.speedEma
+        + (speed - motionState.speedEma) * motionConfig.speedAlpha
+
+    if isMoving and motionState.speedEma >= motionConfig.mountedSetSpeed then
+        motionState.mounted = true
+        motionState.mountedHoldUntil = now + motionConfig.mountedHoldSeconds
+    elseif motionState.mounted then
+        local holdExpired = now > 0 and now >= (motionState.mountedHoldUntil or 0)
+        if holdExpired and motionState.speedEma <= motionConfig.mountedClearSpeed then
+            motionState.mounted = false
+            motionState.mountedHoldUntil = 0
+        end
+    end
+
+    motionState.lastCoordX = coordX
+    motionState.lastCoordZ = coordZ
+    motionState.lastSampleTime = now
+    motionState.lastHeading = heading
+
+    return heading, isMoving, speed, motionState.mounted
 end
 
 --- Gathers the current game state for the telemetry bridge.
@@ -37,7 +190,7 @@ function Gatherer.GetPacket()
 
     local t = nil
     if targetUnitId then
-        local tok, tu = pcall(Inspect.Unit.Detail, targetSpec)
+        local tok, tu = pcall(Inspect.Unit.Detail, targetUnitId)
         if tok and tu then t = tu end
     end
 
@@ -50,14 +203,17 @@ function Gatherer.GetPacket()
         coordX   = p.coordX   or 0,
         coordY   = p.coordY   or 0,
         coordZ   = p.coordZ   or 0,
-        facing   = p.facing   or 0,
+        facing   = 0,
         zoneHash = 0,
         targetID = targetUnitId or (t and t.id) or nil,
+        motionSpeed = 0,
     }
 
-    -- Zone hash — we use a hash over the zone string since it can be nil during transitions
-    local zoneOk, zoneVal = pcall(Inspect.System.Zone)
-    packet.zoneHash = HashZone(zoneOk and zoneVal or nil)
+    packet.zoneHash = ResolveZoneHash(p)
+
+    local inferredHeading, isMoving, speed, isMounted = InferMotion(packet.coordX, packet.coordZ)
+    packet.facing = inferredHeading
+    packet.motionSpeed = speed
 
     -- Normalized HP [0-255]
     if p.health and p.healthMax and p.healthMax > 0 then
@@ -75,9 +231,9 @@ function Gatherer.GetPacket()
     --   bit 4 = IsMounted
     if p.combat  then packet.flags = packet.flags + 1  end
     if packet.targetID then packet.flags = packet.flags + 2  end
-    if p.move    then packet.flags = packet.flags + 4  end
+    if isMoving  then packet.flags = packet.flags + 4  end
     if (p.health or 0) > 0 then packet.flags = packet.flags + 8 end
-    if p.mounted then packet.flags = packet.flags + 16 end
+    if isMounted then packet.flags = packet.flags + 16 end
 
     return packet
 end
