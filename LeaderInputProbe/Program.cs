@@ -88,9 +88,19 @@ internal static class Program
             }
 
             string repoRoot = FindRepoRoot();
-            string debugDir = Path.Combine(repoRoot, "LeaderInputProbe", "debug");
-            Directory.CreateDirectory(debugDir);
-            string resultsPath = Path.Combine(debugDir, ResultLogName);
+            string resultsPath = ResolveResultsPath(repoRoot, options.ResultsPath);
+
+            if (options.ShowSummary)
+            {
+                return PrintSummary(resultsPath);
+            }
+
+            string? resultsDirectory = Path.GetDirectoryName(resultsPath);
+            if (!string.IsNullOrWhiteSpace(resultsDirectory))
+            {
+                Directory.CreateDirectory(resultsDirectory);
+            }
+
             EnsureResultLog(resultsPath);
 
             if (!options.ShowHelp && !options.ListOnly && !options.HasProbeIntent)
@@ -698,6 +708,207 @@ internal static class Program
         }
     }
 
+    private static string ResolveResultsPath(string repoRoot, string? explicitPath)
+    {
+        return string.IsNullOrWhiteSpace(explicitPath)
+            ? Path.Combine(repoRoot, "LeaderInputProbe", "debug", ResultLogName)
+            : ResolvePath(repoRoot, explicitPath);
+    }
+
+    private static int PrintSummary(string path)
+    {
+        if (!File.Exists(path))
+        {
+            Console.Error.WriteLine($"Probe results file was not found: {path}");
+            return 1;
+        }
+
+        var rows = LoadSummaryRows(path, out int skippedRows);
+        Console.WriteLine("============================================================");
+        Console.WriteLine("Leader Input Probe Summary");
+        Console.WriteLine("============================================================");
+        Console.WriteLine($"Results: {path}");
+
+        if (rows.Count == 0)
+        {
+            Console.WriteLine("No probe result entries were found.");
+            if (skippedRows > 0)
+            {
+                Console.WriteLine($"Skipped malformed rows: {skippedRows}");
+            }
+            return 0;
+        }
+
+        int accepted = rows.Count(static row => row.IsAccepted);
+        int ignored = rows.Count(static row => row.IsIgnored);
+        int invalid = rows.Count(static row => string.Equals(row.Result, "invalid_strip", StringComparison.OrdinalIgnoreCase));
+        int noInspection = rows.Count(static row => string.Equals(row.Result, "sent_without_inspection", StringComparison.OrdinalIgnoreCase));
+
+        Console.WriteLine($"Rows: {rows.Count}");
+        Console.WriteLine($"Accepted: {accepted}");
+        Console.WriteLine($"Ignored/NoChange: {ignored}");
+        Console.WriteLine($"Invalid strips: {invalid}");
+        Console.WriteLine($"Without inspection: {noInspection}");
+        if (skippedRows > 0)
+        {
+            Console.WriteLine($"Skipped malformed rows: {skippedRows}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("By probe:");
+        Console.WriteLine("  Probe                 Total  Accepted  Ignored  Invalid  AvgΔ3D  LastResult");
+
+        foreach (var group in rows
+            .GroupBy(static row => $"{row.SourceType}:{row.Probe}", StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            string key = group.Key.Length > 20 ? group.Key[..20] : group.Key;
+            int total = group.Count();
+            int groupAccepted = group.Count(static row => row.IsAccepted);
+            int groupIgnored = group.Count(static row => row.IsIgnored);
+            int groupInvalid = group.Count(static row => string.Equals(row.Result, "invalid_strip", StringComparison.OrdinalIgnoreCase));
+            double averageDistance = group.Average(static row => (double)row.Distance3D);
+            string lastResult = group
+                .OrderByDescending(static row => row.TimestampText, StringComparer.OrdinalIgnoreCase)
+                .Select(static row => row.Result)
+                .FirstOrDefault() ?? string.Empty;
+
+            Console.WriteLine($"  {key,-20} {total,5} {groupAccepted,9} {groupIgnored,8} {groupInvalid,8} {averageDistance,7:F2}  {lastResult}");
+        }
+
+        return 0;
+    }
+
+    private static List<ProbeSummaryRow> LoadSummaryRows(string path, out int skippedRows)
+    {
+        skippedRows = 0;
+        using var reader = new StreamReader(path);
+
+        string? headerLine = reader.ReadLine();
+        if (string.IsNullOrWhiteSpace(headerLine))
+        {
+            return new List<ProbeSummaryRow>();
+        }
+
+        string[] headers = ParseCsvLine(headerLine);
+        var headerIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < headers.Length; index++)
+        {
+            headerIndex[headers[index]] = index;
+        }
+
+        if (!headerIndex.ContainsKey("Probe")
+            || !headerIndex.ContainsKey("SourceType")
+            || !headerIndex.ContainsKey("Result"))
+        {
+            skippedRows = 1;
+            return new List<ProbeSummaryRow>();
+        }
+
+        var rows = new List<ProbeSummaryRow>();
+        while (!reader.EndOfStream)
+        {
+            string? line = reader.ReadLine();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            string[] fields = ParseCsvLine(line);
+            if (!TryGetCsvField(fields, headerIndex, "Probe", out string probe)
+                || !TryGetCsvField(fields, headerIndex, "SourceType", out string sourceType)
+                || !TryGetCsvField(fields, headerIndex, "Result", out string result))
+            {
+                skippedRows++;
+                continue;
+            }
+
+            rows.Add(new ProbeSummaryRow
+            {
+                TimestampText = GetCsvField(fields, headerIndex, "Timestamp"),
+                Probe = probe,
+                SourceType = sourceType,
+                Result = result,
+                Distance3D = ParseCsvFloat(GetCsvField(fields, headerIndex, "Distance3D")),
+            });
+        }
+
+        return rows;
+    }
+
+    private static string[] ParseCsvLine(string line)
+    {
+        var fields = new List<string>();
+        var current = new System.Text.StringBuilder();
+        bool inQuotes = false;
+
+        for (int index = 0; index < line.Length; index++)
+        {
+            char ch = line[index];
+            if (inQuotes)
+            {
+                if (ch == '"')
+                {
+                    if (index + 1 < line.Length && line[index + 1] == '"')
+                    {
+                        current.Append('"');
+                        index++;
+                    }
+                    else
+                    {
+                        inQuotes = false;
+                    }
+                }
+                else
+                {
+                    current.Append(ch);
+                }
+            }
+            else if (ch == ',')
+            {
+                fields.Add(current.ToString());
+                current.Clear();
+            }
+            else if (ch == '"')
+            {
+                inQuotes = true;
+            }
+            else
+            {
+                current.Append(ch);
+            }
+        }
+
+        fields.Add(current.ToString());
+        return fields.ToArray();
+    }
+
+    private static bool TryGetCsvField(string[] fields, Dictionary<string, int> headerIndex, string name, out string value)
+    {
+        value = string.Empty;
+        if (!headerIndex.TryGetValue(name, out int index) || index < 0 || index >= fields.Length)
+        {
+            return false;
+        }
+
+        value = fields[index];
+        return true;
+    }
+
+    private static string GetCsvField(string[] fields, Dictionary<string, int> headerIndex, string name)
+    {
+        return TryGetCsvField(fields, headerIndex, name, out string value)
+            ? value
+            : string.Empty;
+    }
+
+    private static float ParseCsvFloat(string text)
+    {
+        return float.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out float value)
+            ? value
+            : 0f;
+    }
+
     private static BridgeSettings LoadSettings(string repoRoot, string? explicitPath, DiagnosticService diag, out string source)
     {
         string path = string.IsNullOrWhiteSpace(explicitPath)
@@ -782,6 +993,10 @@ internal static class Program
 
                 case "--list":
                     options.ListOnly = true;
+                    break;
+
+                case "--summary":
+                    options.ShowSummary = true;
                     break;
 
                 case "--all":
@@ -898,6 +1113,15 @@ internal static class Program
                     options.SettingsPath = settingsPath;
                     break;
 
+                case "--results":
+                    if (!TryReadString(args, ref i, out string? resultsPath, out error))
+                    {
+                        return false;
+                    }
+
+                    options.ResultsPath = resultsPath;
+                    break;
+
                 case "--pid":
                     if (!TryReadInt(args, ref i, out int pidValue, out error))
                     {
@@ -998,7 +1222,7 @@ internal static class Program
             return false;
         }
 
-        if (!options.ShowHelp && !options.ListOnly && !options.HasProbeIntent)
+        if (!options.ShowHelp && !options.ListOnly && !options.ShowSummary && !options.HasProbeIntent)
         {
             error = "--key or --action is required unless you only use --list.";
             return false;
@@ -1045,6 +1269,8 @@ internal static class Program
     {
         Console.WriteLine("Usage:");
         Console.WriteLine("  LeaderInputProbe.exe --list");
+        Console.WriteLine("  LeaderInputProbe.exe --summary");
+        Console.WriteLine("  LeaderInputProbe.exe --summary --results .\\LeaderInputProbe\\debug\\input_probe_results.csv");
         Console.WriteLine("  LeaderInputProbe.exe --pid 127928 --key W --hold-ms 3000 --inspect");
         Console.WriteLine("  LeaderInputProbe.exe --pid 127928 --action forward --inspect");
         Console.WriteLine("  LeaderInputProbe.exe --hwnd 0x351350 --key SPACE --tap");
@@ -1053,6 +1279,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit if no probe action is given");
+        Console.WriteLine("  --summary              Summarize an existing input_probe_results.csv without sending input");
         Console.WriteLine("  --index N              Target the Nth filtered RIFT window");
         Console.WriteLine("  --all                  Probe all filtered RIFT windows");
         Console.WriteLine("  --pid N                Filter to a specific process id");
@@ -1063,6 +1290,7 @@ internal static class Program
         Console.WriteLine("  --key NAME             Required probe key: Q, W, E, A, S, D, F, M, SPACE, 1-5");
         Console.WriteLine("  --action NAME          Probe action resolved from settings.json: forward, backward, left, right, jump, mount, interact");
         Console.WriteLine("  --settings PATH        Optional settings.json used with --action");
+        Console.WriteLine("  --results PATH         Optional results CSV path used with --summary");
         Console.WriteLine("  --tap                  Use a 60 ms press instead of --hold-ms");
         Console.WriteLine("  --hold-ms N            Press duration in milliseconds (default: 250)");
         Console.WriteLine("  --repeat N             Repeat the probe N times (default: 1)");
@@ -1151,10 +1379,26 @@ internal static class Program
         public required string Notes { get; init; }
     }
 
+    private sealed class ProbeSummaryRow
+    {
+        public required string TimestampText { get; init; }
+        public required string Probe { get; init; }
+        public required string SourceType { get; init; }
+        public required string Result { get; init; }
+        public required float Distance3D { get; init; }
+        public bool IsAccepted =>
+            string.Equals(Result, "accepted_movement", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Result, "accepted_state_change", StringComparison.OrdinalIgnoreCase);
+        public bool IsIgnored =>
+            string.Equals(Result, "ignored_movement", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Result, "no_visible_change", StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class Options
     {
         public bool ShowHelp { get; set; }
         public bool ListOnly { get; set; }
+        public bool ShowSummary { get; set; }
         public bool AllWindows { get; set; }
         public bool Inspect { get; set; }
         public bool Tap { get; set; }
@@ -1171,6 +1415,7 @@ internal static class Program
         public string? KeyName { get; set; }
         public string? ActionName { get; set; }
         public string? SettingsPath { get; set; }
+        public string? ResultsPath { get; set; }
         public bool HasProbeIntent => !string.IsNullOrWhiteSpace(KeyName) || !string.IsNullOrWhiteSpace(ActionName);
     }
 }
