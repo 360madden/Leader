@@ -25,6 +25,7 @@ RunOnStartup = {
   "Modules/UpdateCadence.lua",
   "Modules/ClientProfile.lua",
   "Modules/TargetSnapshot.lua",
+  "Modules/DumpCaptureStats.lua",
   "Modules/StatusBadge.lua",
   "Modules/DiagnosticUI.lua",
   "main.lua"

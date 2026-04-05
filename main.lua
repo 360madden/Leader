@@ -55,6 +55,7 @@ local function PrintHelp()
     print("  " .. prefix .. " cadence          — Show update cadence timing")
     print("  " .. prefix .. " profile          — Show client profile snapshot")
     print("  " .. prefix .. " target           — Show target snapshot status")
+    print("  " .. prefix .. " dumpcapture      — Show dump-write capture stats")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -241,6 +242,10 @@ local function HandleSlashCommand(_, params)
         if Private.TargetSnapshot and Private.TargetSnapshot.PrintStatus then
             Private.TargetSnapshot.PrintStatus()
         end
+    elseif command == "dumpcapture" then
+        if Private.DumpCaptureStats and Private.DumpCaptureStats.PrintStatus then
+            Private.DumpCaptureStats.PrintStatus()
+        end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "dump" then
@@ -390,7 +395,7 @@ local function UpdateTelemetry()
     end
 
     -- 10. Persist recent telemetry samples for helper-app consumption via SavedVariables.
-    Private.DumpLog.Record(packet)
+    local dumpRecorded = Private.DumpLog.Record(packet)
 
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordPacket then
         Private.RuntimeStatus.RecordPacket(packet, IsDumpEnabled())
@@ -406,6 +411,9 @@ local function UpdateTelemetry()
     end
     if Private.TargetSnapshot and Private.TargetSnapshot.Sync then
         Private.TargetSnapshot.Sync(packet)
+    end
+    if Private.DumpCaptureStats and Private.DumpCaptureStats.Sync then
+        Private.DumpCaptureStats.Sync(dumpRecorded)
     end
 
     if Private.TransitionState and Private.TransitionState.RecordPacket then
@@ -458,6 +466,9 @@ local function Init()
     if Private.TargetSnapshot and Private.TargetSnapshot.Init then
         Private.TargetSnapshot.Init()
     end
+    if Private.DumpCaptureStats and Private.DumpCaptureStats.Init then
+        Private.DumpCaptureStats.Init()
+    end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()
     end
@@ -481,6 +492,9 @@ local function Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
         Private.CapabilityStatus.MarkModuleReady("targetSnapshot", Private.TargetSnapshot and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("dumpCaptureStats", Private.DumpCaptureStats and true or false)
     end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()

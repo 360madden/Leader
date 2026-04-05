@@ -242,6 +242,7 @@ Capability status keeps:
 - session timeline / session stats / packet audit / cadence readiness
 - client profile readiness
 - target snapshot readiness
+- dump-capture stats readiness
 - mini status-badge readiness
 - renderer / diag / dump subsystem readiness
 - bounded capability-change history
@@ -376,6 +377,24 @@ The target snapshot keeps:
 - target acquire / loss / switch counts
 - current acquire time and last loss time
 - last known target identity after target loss
+
+### Addon-Side Dump Capture Stats
+
+The addon now tracks real dump-write activity in `LeaderConfig.dumpCaptureStats`, which helps tell the difference between “dump enabled” and “dump actively writing entries.”
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader dumpcapture` | Print the current dump-capture summary |
+
+Dump capture stats keep:
+
+- whether dump logging is currently enabled
+- attempted dump-write count
+- actual written entry count
+- throttled/skipped write count
+- last recorded time, entry count, and sequence
 
 ### Window Resize Helper
 

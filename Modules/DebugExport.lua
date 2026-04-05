@@ -69,6 +69,9 @@ local function EnsureConfig()
     if type(export.targetSnapshot) ~= "table" then
         export.targetSnapshot = {}
     end
+    if type(export.dumpCaptureStats) ~= "table" then
+        export.dumpCaptureStats = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -137,6 +140,7 @@ local function UpdateFromCapabilities(export)
         updateCadenceReady = status.updateCadenceReady,
         clientProfileReady = status.clientProfileReady,
         targetSnapshotReady = status.targetSnapshotReady,
+        dumpCaptureStatsReady = status.dumpCaptureStatsReady,
         rendererReady = status.rendererReady,
         statusBadgeReady = status.statusBadgeReady,
         diagReady = status.diagReady,
@@ -271,6 +275,25 @@ local function UpdateFromTargetSnapshot(export)
     }
 end
 
+local function UpdateFromDumpCaptureStats(export)
+    if not (Private.DumpCaptureStats and Private.DumpCaptureStats.GetStatus) then
+        return
+    end
+
+    local stats = Private.DumpCaptureStats.GetStatus()
+    export.dumpCaptureStats = {
+        sessionStartedAt = stats.sessionStartedAt,
+        lastUpdatedAt = stats.lastUpdatedAt,
+        lastRecordedAt = stats.lastRecordedAt,
+        dumpEnabled = stats.dumpEnabled,
+        attemptedRecordCount = stats.attemptedRecordCount,
+        recordedEntryCount = stats.recordedEntryCount,
+        throttledEntryCount = stats.throttledEntryCount,
+        lastSeq = stats.lastSeq,
+        entryCount = stats.entryCount,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -320,6 +343,7 @@ function DebugExport.Sync(packet)
     UpdateFromCadence(export)
     UpdateFromClientProfile(export)
     UpdateFromTargetSnapshot(export)
+    UpdateFromDumpCaptureStats(export)
     UpdateFromDump(export)
 end
 
@@ -337,6 +361,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromCadence(export)
     UpdateFromClientProfile(export)
     UpdateFromTargetSnapshot(export)
+    UpdateFromDumpCaptureStats(export)
     UpdateFromDump(export)
 end
 
