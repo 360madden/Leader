@@ -15,6 +15,18 @@ local state = {
 
 local registeredSlashCommands = {}
 
+local function ChatPrint(text)
+    if Command and Command.Console and Command.Console.Display then
+        Command.Console.Display("general", true, text, true)
+    else
+        print(text)
+    end
+end
+
+local function Colorize(text, hexColor)
+    return string.format('<font color="%s">%s</font>', hexColor, text)
+end
+
 local function FormatSlashCommands()
     if #registeredSlashCommands == 0 then
         return "/leaderbridge"
@@ -100,6 +112,19 @@ local function RegisterSlashCommand(commandName)
     return true
 end
 
+local function PrintLoadBanner()
+    local addonName = (Name and Name.English) or tostring(addon or "Leader")
+    local addonVersion = tostring(Version or "unknown")
+
+    ChatPrint(
+        Colorize(addonName, "#33D1FF")
+        .. " "
+        .. Colorize("loaded ok", "#FFFFFF")
+        .. " "
+        .. Colorize("v" .. addonVersion, "#FFD100")
+    )
+end
+
 --- Orchestrates a single telemetry update.
 local function UpdateTelemetry()
     Private.Renderer.SyncLayout()
@@ -167,12 +192,14 @@ local function Init()
     Command.Event.Attach(Event.System.Update.Begin, UpdateTelemetry, "LeaderUpdate")
 
     if Private.PrimarySlashCommand then
-        print("🛰️ Leader Telemetry Bridge v1.1 loaded. Type /" .. Private.PrimarySlashCommand .. " help for commands.")
+        PrintLoadBanner()
+        print("🛰️ Type /" .. Private.PrimarySlashCommand .. " help for commands.")
         if not leaderRegistered and leaderBridgeRegistered then
             print("🛰️ Leader: /leader is unavailable on this client, so /leaderbridge was registered instead.")
         end
     else
-        print("🛰️ Leader Telemetry Bridge v1.1 loaded, but no slash command could be registered.")
+        PrintLoadBanner()
+        print("🛰️ Leader Telemetry Bridge loaded, but no slash command could be registered.")
     end
 end
 
