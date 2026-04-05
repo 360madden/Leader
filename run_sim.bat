@@ -19,6 +19,15 @@ if errorlevel 1 (
 )
 
 set "PUSHD_OK=1"
+if not exist "debug" (
+    mkdir "debug" >nul 2>&1
+    if errorlevel 1 (
+        set "EXIT_CODE=1"
+        call "%ROOT%log_launcher_failure.bat" "%ROOT%" "%LAUNCHER%" "mkdir_debug" "1" "Failed to create the debug folder in LeaderDecoder."
+        echo [ERROR] Could not create the LeaderDecoder debug folder.
+        goto :finish
+    )
+)
 if not exist "bin\Release\net9.0\LeaderDecoder.exe" (
     set "EXIT_CODE=2"
     call "%ROOT%log_launcher_failure.bat" "%ROOT%" "%LAUNCHER%" "missing_binary" "2" "LeaderDecoder.exe was not found. Run run_bridge.bat first or build LeaderDecoder."

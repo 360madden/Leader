@@ -19,6 +19,15 @@ if errorlevel 1 (
 )
 
 set "PUSHD_OK=1"
+if not exist "debug" (
+    mkdir "debug" >nul 2>&1
+    if errorlevel 1 (
+        set "EXIT_CODE=1"
+        call "%ROOT%log_launcher_failure.bat" "%ROOT%" "%LAUNCHER%" "mkdir_debug" "1" "Failed to create the debug folder in LeaderScreenshotInspector."
+        echo [ERROR] Could not create the LeaderScreenshotInspector debug folder.
+        goto :finish
+    )
+)
 dotnet build -c Release
 set "EXIT_CODE=%ERRORLEVEL%"
 if %EXIT_CODE% NEQ 0 (
