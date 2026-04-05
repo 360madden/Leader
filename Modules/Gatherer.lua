@@ -134,24 +134,26 @@ local function ReadNow()
     return 0
 end
 
-local function ResolveZoneHash(unitDetail)
+local function ResolveZoneInfo(unitDetail)
     local zoneId = unitDetail and unitDetail.zone
     if zoneId == nil then
-        return 0
+        return 0, "", ""
     end
 
     local zoneDescriptor = tostring(zoneId)
+    local zoneName = ""
     if Inspect and Inspect.Zone and Inspect.Zone.Detail then
         local ok, zoneDetail = pcall(Inspect.Zone.Detail, zoneId)
         if ok and zoneDetail then
-            local zoneName = zoneDetail.name or zoneDetail.id
-            if zoneName ~= nil then
-                zoneDescriptor = tostring(zoneName) .. "|" .. tostring(zoneDetail.id or zoneId)
+            local resolvedZoneName = zoneDetail.name or zoneDetail.id
+            if resolvedZoneName ~= nil then
+                zoneName = tostring(resolvedZoneName)
+                zoneDescriptor = zoneName .. "|" .. tostring(zoneDetail.id or zoneId)
             end
         end
     end
 
-    return HashZone(zoneDescriptor)
+    return HashZone(zoneDescriptor), tostring(zoneId), zoneName
 end
 
 local function BuildPlayerTag(unitDetail)
@@ -275,6 +277,10 @@ function Gatherer.GetPacket()
         zoneHash = 0,
         targetID = targetUnitId or (t and t.id) or nil,
         playerTag = BuildPlayerTag(p),
+        playerName = tostring(p.name or ""),
+        playerId = tostring(p.id or ""),
+        zoneId = "",
+        zoneName = "",
         motionSpeed = 0,
         isCombat = false,
         hasTarget = false,
@@ -283,7 +289,7 @@ function Gatherer.GetPacket()
         isMounted = false,
     }
 
-    packet.zoneHash = ResolveZoneHash(p)
+    packet.zoneHash, packet.zoneId, packet.zoneName = ResolveZoneInfo(p)
     if motionState.lastZoneHash ~= nil and motionState.lastZoneHash ~= packet.zoneHash then
         ResetMotionState(packet.zoneHash)
     elseif motionState.lastZoneHash == nil then

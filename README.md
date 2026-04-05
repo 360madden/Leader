@@ -240,6 +240,7 @@ Capability status keeps:
 - slash registration state and active primary slash command
 - runtime / transition / export / render-health module readiness
 - session timeline / session stats / packet audit / cadence readiness
+- client profile readiness
 - mini status-badge readiness
 - renderer / diag / dump subsystem readiness
 - bounded capability-change history
@@ -339,6 +340,24 @@ Cadence tracking keeps:
 - long-frame count
 - average, max, and last frame delta
 - last telemetry emit time
+
+### Addon-Side Client Profile
+
+The addon now persists a lightweight client identity snapshot in `LeaderConfig.clientProfile` so external tools can map a SavedVariables set back to a human-readable character and addon build.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader profile` | Print the current client-profile summary |
+
+The client profile keeps:
+
+- addon name and version
+- first seen / last seen timestamps
+- current primary slash command and registration state
+- player name, player ID, and player tag
+- last known zone name, zone ID, and zone hash
 
 ### Window Resize Helper
 

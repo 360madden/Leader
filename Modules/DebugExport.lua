@@ -63,6 +63,9 @@ local function EnsureConfig()
     if type(export.updateCadence) ~= "table" then
         export.updateCadence = {}
     end
+    if type(export.clientProfile) ~= "table" then
+        export.clientProfile = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -129,6 +132,7 @@ local function UpdateFromCapabilities(export)
         sessionStatsReady = status.sessionStatsReady,
         packetAuditReady = status.packetAuditReady,
         updateCadenceReady = status.updateCadenceReady,
+        clientProfileReady = status.clientProfileReady,
         rendererReady = status.rendererReady,
         statusBadgeReady = status.statusBadgeReady,
         diagReady = status.diagReady,
@@ -216,6 +220,30 @@ local function UpdateFromCadence(export)
     }
 end
 
+local function UpdateFromClientProfile(export)
+    if not (Private.ClientProfile and Private.ClientProfile.GetStatus) then
+        return
+    end
+
+    local profile = Private.ClientProfile.GetStatus()
+    export.clientProfile = {
+        addonName = profile.addonName,
+        addonVersion = profile.addonVersion,
+        firstSeenAt = profile.firstSeenAt,
+        lastSeenAt = profile.lastSeenAt,
+        sessionStartedAt = profile.sessionStartedAt,
+        primarySlashCommand = profile.primarySlashCommand,
+        leaderRegistered = profile.leaderRegistered,
+        leaderBridgeRegistered = profile.leaderBridgeRegistered,
+        playerTag = profile.playerTag,
+        playerName = profile.playerName,
+        playerId = profile.playerId,
+        zoneHash = profile.zoneHash,
+        zoneId = profile.zoneId,
+        zoneName = profile.zoneName,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -263,6 +291,7 @@ function DebugExport.Sync(packet)
     UpdateFromSessionStats(export)
     UpdateFromPacketAudit(export)
     UpdateFromCadence(export)
+    UpdateFromClientProfile(export)
     UpdateFromDump(export)
 end
 
@@ -278,6 +307,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromSessionStats(export)
     UpdateFromPacketAudit(export)
     UpdateFromCadence(export)
+    UpdateFromClientProfile(export)
     UpdateFromDump(export)
 end
 

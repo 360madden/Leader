@@ -53,6 +53,7 @@ local function PrintHelp()
     print("  " .. prefix .. " stats            — Show session statistics")
     print("  " .. prefix .. " packetaudit      — Show packet/encoder audit status")
     print("  " .. prefix .. " cadence          — Show update cadence timing")
+    print("  " .. prefix .. " profile          — Show client profile snapshot")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -231,6 +232,10 @@ local function HandleSlashCommand(_, params)
         if Private.UpdateCadence and Private.UpdateCadence.PrintStatus then
             Private.UpdateCadence.PrintStatus()
         end
+    elseif command == "profile" then
+        if Private.ClientProfile and Private.ClientProfile.PrintStatus then
+            Private.ClientProfile.PrintStatus()
+        end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "dump" then
@@ -391,6 +396,9 @@ local function UpdateTelemetry()
     if Private.PacketAudit and Private.PacketAudit.Sync then
         Private.PacketAudit.Sync(packet)
     end
+    if Private.ClientProfile and Private.ClientProfile.Sync then
+        Private.ClientProfile.Sync(packet)
+    end
 
     if Private.TransitionState and Private.TransitionState.RecordPacket then
         Private.TransitionState.RecordPacket(packet)
@@ -436,6 +444,9 @@ local function Init()
     if Private.UpdateCadence and Private.UpdateCadence.Init then
         Private.UpdateCadence.Init()
     end
+    if Private.ClientProfile and Private.ClientProfile.Init then
+        Private.ClientProfile.Init()
+    end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()
     end
@@ -453,6 +464,9 @@ local function Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
         Private.CapabilityStatus.MarkModuleReady("updateCadence", Private.UpdateCadence and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("clientProfile", Private.ClientProfile and true or false)
     end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()
@@ -499,6 +513,9 @@ local function Init()
 
     if Private.CapabilityStatus and Private.CapabilityStatus.RecordSlashRegistration then
         Private.CapabilityStatus.RecordSlashRegistration(Private.PrimarySlashCommand, leaderRegistered, leaderBridgeRegistered)
+    end
+    if Private.ClientProfile and Private.ClientProfile.RecordSlashRegistration then
+        Private.ClientProfile.RecordSlashRegistration(Private.PrimarySlashCommand, leaderRegistered, leaderBridgeRegistered)
     end
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordSlashRegistration then
         Private.RuntimeStatus.RecordSlashRegistration(Private.PrimarySlashCommand, leaderRegistered, leaderBridgeRegistered)
