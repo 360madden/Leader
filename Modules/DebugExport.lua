@@ -48,6 +48,9 @@ local function EnsureConfig()
     if type(export.transition) ~= "table" then
         export.transition = {}
     end
+    if type(export.capabilities) ~= "table" then
+        export.capabilities = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -96,6 +99,27 @@ local function UpdateFromTransition(export)
     }
 end
 
+local function UpdateFromCapabilities(export)
+    if not (Private.CapabilityStatus and Private.CapabilityStatus.GetStatus) then
+        return
+    end
+
+    local status = Private.CapabilityStatus.GetStatus()
+    export.capabilities = {
+        primarySlashCommand = status.primarySlashCommand,
+        leaderRegistered = status.leaderRegistered,
+        leaderBridgeRegistered = status.leaderBridgeRegistered,
+        runtimeReady = status.runtimeReady,
+        transitionReady = status.transitionReady,
+        debugExportReady = status.debugExportReady,
+        renderHealthReady = status.renderHealthReady,
+        rendererReady = status.rendererReady,
+        diagReady = status.diagReady,
+        dumpReady = status.dumpReady,
+        historyCount = status.historyCount,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -138,6 +162,7 @@ function DebugExport.Sync(packet)
 
     UpdateFromRuntime(export)
     UpdateFromTransition(export)
+    UpdateFromCapabilities(export)
     UpdateFromDump(export)
 end
 
@@ -148,6 +173,7 @@ function DebugExport.SyncNoPacket()
 
     UpdateFromRuntime(export)
     UpdateFromTransition(export)
+    UpdateFromCapabilities(export)
     UpdateFromDump(export)
 end
 

@@ -224,6 +224,24 @@ Renderer health keeps:
 - current pixel size / client width snapshot
 - bounded history for incomplete frames and layout changes
 
+### Addon-Side Capability Status
+
+The addon now tracks which internal subsystems initialized successfully in `LeaderConfig.capabilities`, which helps distinguish partial addon startup from packet/render issues that external helpers cannot see directly.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader capabilities` | Print the current addon capability summary |
+| `/leader caps` | Short alias for capability status |
+
+Capability status keeps:
+
+- slash registration state and active primary slash command
+- runtime / transition / export / render-health module readiness
+- renderer / diag / dump subsystem readiness
+- bounded capability-change history
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:

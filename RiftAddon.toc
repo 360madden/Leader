@@ -18,6 +18,7 @@ RunOnStartup = {
   "Modules/TransitionState.lua",
   "Modules/DebugExport.lua",
   "Modules/RenderHealth.lua",
+  "Modules/CapabilityStatus.lua",
   "Modules/DiagnosticUI.lua",
   "main.lua"
 }

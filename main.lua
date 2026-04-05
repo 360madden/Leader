@@ -48,6 +48,7 @@ local function PrintHelp()
     print("  " .. prefix .. " transition       — Show loading/transition status")
     print("  " .. prefix .. " export           — Show debug export snapshot status")
     print("  " .. prefix .. " render           — Show renderer health status")
+    print("  " .. prefix .. " capabilities     — Show addon capability status")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
@@ -136,6 +137,10 @@ local function HandleSlashCommand(_, params)
     elseif command == "render" then
         if Private.RenderHealth and Private.RenderHealth.PrintStatus then
             Private.RenderHealth.PrintStatus()
+        end
+    elseif command == "capabilities" or command == "caps" then
+        if Private.CapabilityStatus and Private.CapabilityStatus.PrintStatus then
+            Private.CapabilityStatus.PrintStatus()
         end
     elseif command == "dump" then
         HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
@@ -286,25 +291,52 @@ local function Init()
     if Private.RuntimeStatus and Private.RuntimeStatus.InitSession then
         Private.RuntimeStatus.InitSession()
     end
+    if Private.CapabilityStatus and Private.CapabilityStatus.Init then
+        Private.CapabilityStatus.Init()
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("runtime", Private.RuntimeStatus and true or false)
+    end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("transition", Private.TransitionState and true or false)
     end
     if Private.DebugExport and Private.DebugExport.Init then
         Private.DebugExport.Init()
     end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("debugExport", Private.DebugExport and true or false)
+    end
     if Private.RenderHealth and Private.RenderHealth.Init then
         Private.RenderHealth.Init()
     end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("renderHealth", Private.RenderHealth and true or false)
+    end
     Private.Renderer.Init()
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("renderer", true)
+    end
     Private.DiagUI.Create()
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("diag", Private.DiagUI and true or false)
+    end
     if Private.DumpLog and Private.DumpLog.GetStatus then
         Private.DumpLog.GetStatus()
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("dump", Private.DumpLog and true or false)
     end
 
     local leaderRegistered = RegisterSlashCommand("leader")
     local leaderBridgeRegistered = RegisterSlashCommand("leaderbridge")
     Private.PrimarySlashCommand = registeredSlashCommands[1]
 
+    if Private.CapabilityStatus and Private.CapabilityStatus.RecordSlashRegistration then
+        Private.CapabilityStatus.RecordSlashRegistration(Private.PrimarySlashCommand, leaderRegistered, leaderBridgeRegistered)
+    end
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordSlashRegistration then
         Private.RuntimeStatus.RecordSlashRegistration(Private.PrimarySlashCommand, leaderRegistered, leaderBridgeRegistered)
     end
