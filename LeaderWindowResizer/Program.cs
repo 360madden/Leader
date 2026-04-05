@@ -61,10 +61,10 @@ internal static class Program
         {
             var snapshot = RiftWindowService.GetWindowSnapshot(filteredWindows[i].Hwnd);
             Console.WriteLine(
-                $"[{i + 1}] PID {filteredWindows[i].ProcessId} | HWND {RiftWindowService.FormatHwnd(filteredWindows[i].Hwnd)} | " +
-                $"{filteredWindows[i].ProcessName} | {filteredWindows[i].Title} | " +
+                $"[{i + 1}] {RiftWindowService.FormatIdentity(filteredWindows[i])} | " +
                 $"Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0} | " +
                 $"Window={snapshot.WindowLeft ?? 0},{snapshot.WindowTop ?? 0}");
+            Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(filteredWindows[i])}");
         }
 
         if (filteredWindows.Count == 0)
@@ -119,9 +119,8 @@ internal static class Program
             var result = ResizeWindow(window.Hwnd, targetLeft, targetTop, targetClient.Width, targetClient.Height);
 
             Console.WriteLine();
-            Console.WriteLine(
-                $"[{index + 1}] PID {window.ProcessId} | HWND {RiftWindowService.FormatHwnd(window.Hwnd)} | " +
-                $"{window.ProcessName} | {window.Title}");
+            Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
+            Console.WriteLine($"  Selectors:     {RiftWindowService.FormatSelectorHints(window)}");
             Console.WriteLine($"  Before client: {before.ClientWidth}x{before.ClientHeight}");
             Console.WriteLine($"  After client:  {result.After.ClientWidth}x{result.After.ClientHeight}");
             Console.WriteLine($"  Target pos:    {targetLeft},{targetTop}");
@@ -163,14 +162,20 @@ internal static class Program
         return new RiftWindowFilter
         {
             ProcessId = options.ProcessId,
+            ProcessIds = options.ProcessIds,
             Hwnd = options.Hwnd,
+            Hwnds = options.Hwnds,
             TitleContains = options.TitleContains
         };
     }
 
     private static bool HasExplicitFilter(Options options)
     {
-        return options.ProcessId.HasValue || options.Hwnd.HasValue || !string.IsNullOrWhiteSpace(options.TitleContains);
+        return options.ProcessId.HasValue
+            || options.ProcessIds is { Length: > 0 }
+            || options.Hwnd.HasValue
+            || options.Hwnds is { Length: > 0 }
+            || !string.IsNullOrWhiteSpace(options.TitleContains);
     }
 
     private static string BuildIntentSummary(Options options, int selectedCount)
@@ -196,10 +201,18 @@ internal static class Program
         {
             parts.Add($"PID={options.ProcessId.Value}");
         }
+        else if (options.ProcessIds is { Length: > 0 })
+        {
+            parts.Add($"PIDs={string.Join(",", options.ProcessIds)}");
+        }
 
         if (options.Hwnd.HasValue)
         {
             parts.Add($"HWND={RiftWindowService.FormatHwnd(options.Hwnd.Value)}");
+        }
+        else if (options.Hwnds is { Length: > 0 })
+        {
+            parts.Add($"HWNDs={string.Join(",", options.Hwnds.Select(RiftWindowService.FormatHwnd))}");
         }
 
         if (!string.IsNullOrWhiteSpace(options.TitleContains))
@@ -307,7 +320,7 @@ internal static class Program
 
     private static List<RiftWindowInfo> SelectWindows(List<RiftWindowInfo> windows, Options options)
     {
-        if (options.AllWindows)
+        if (options.AllWindows || options.ProcessIds is { Length: > 0 } || options.Hwnds is { Length: > 0 })
         {
             return windows;
         }
@@ -383,6 +396,21 @@ internal static class Program
                     options.ProcessId = pidValue;
                     break;
 
+                case "--pids":
+                    if (!TryReadString(args, ref i, out string? pidListText, out error))
+                    {
+                        return false;
+                    }
+
+                    if (!RiftWindowService.TryParseProcessIdList(pidListText, out int[] processIds))
+                    {
+                        error = $"Could not parse PID list '{pidListText}'. Expected comma-separated integers.";
+                        return false;
+                    }
+
+                    options.ProcessIds = processIds;
+                    break;
+
                 case "--hwnd":
                     if (!TryReadString(args, ref i, out string? hwndText, out error))
                     {
@@ -396,6 +424,21 @@ internal static class Program
                     }
 
                     options.Hwnd = hwnd;
+                    break;
+
+                case "--hwnds":
+                    if (!TryReadString(args, ref i, out string? hwndListText, out error))
+                    {
+                        return false;
+                    }
+
+                    if (!RiftWindowService.TryParseHwndList(hwndListText, out IntPtr[] hwnds))
+                    {
+                        error = $"Could not parse HWND list '{hwndListText}'. Expected comma-separated values such as 0x351350,0x123456.";
+                        return false;
+                    }
+
+                    options.Hwnds = hwnds;
                     break;
 
                 case "--title-contains":
@@ -521,6 +564,25 @@ internal static class Program
             return false;
         }
 
+        if (options.ProcessId.HasValue && options.ProcessIds is { Length: > 0 })
+        {
+            error = "--pid and --pids cannot be combined.";
+            return false;
+        }
+
+        if (options.Hwnd.HasValue && options.Hwnds is { Length: > 0 })
+        {
+            error = "--hwnd and --hwnds cannot be combined.";
+            return false;
+        }
+
+        if ((options.ProcessId.HasValue || options.ProcessIds is { Length: > 0 })
+            && (options.Hwnd.HasValue || options.Hwnds is { Length: > 0 }))
+        {
+            error = "PID-based filters and HWND-based filters cannot be combined.";
+            return false;
+        }
+
         if (options.Width.HasValue ^ options.Height.HasValue)
         {
             error = "--width and --height must be supplied together.";
@@ -611,7 +673,9 @@ internal static class Program
         Console.WriteLine("  LeaderWindowResizer.exe --size 320x180 --left 45 --top 108");
         Console.WriteLine("  LeaderWindowResizer.exe --scale 0.5 --inspect");
         Console.WriteLine("  LeaderWindowResizer.exe --pid 127928 --preset 640x360 --inspect");
+        Console.WriteLine("  LeaderWindowResizer.exe --pids 127928,128104 --preset 640x360 --inspect");
         Console.WriteLine("  LeaderWindowResizer.exe --hwnd 0x123456 --size 485x309");
+        Console.WriteLine("  LeaderWindowResizer.exe --hwnds 0x351350,0x123456 --preset 485x309 --inspect");
         Console.WriteLine("  LeaderWindowResizer.exe --all --preset 640x360 --left 45 --top 108 --step-x 24 --step-y 24");
         Console.WriteLine();
         Console.WriteLine("Options:");
@@ -619,7 +683,9 @@ internal static class Program
         Console.WriteLine("  --index N              Target the Nth filtered RIFT window (default: 1)");
         Console.WriteLine("  --all                  Resize all filtered RIFT windows");
         Console.WriteLine("  --pid N                Filter to a specific process id");
+        Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
         Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
+        Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
         Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
         Console.WriteLine("  --preset NAME          Presets: 320x180, 485x309, 640x360, 1280x720, 180p, 360p, 720p");
         Console.WriteLine("  --size WxH             Custom client resolution");
@@ -641,7 +707,9 @@ internal static class Program
         public int WaitMs { get; set; } = 1000;
         public int? WindowIndex { get; set; }
         public int? ProcessId { get; set; }
+        public int[]? ProcessIds { get; set; }
         public IntPtr? Hwnd { get; set; }
+        public IntPtr[]? Hwnds { get; set; }
         public string? TitleContains { get; set; }
         public int? Left { get; set; }
         public int? Top { get; set; }

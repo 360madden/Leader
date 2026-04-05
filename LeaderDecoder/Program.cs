@@ -97,7 +97,7 @@ namespace LeaderDecoder
                 {
                     Console.SetCursorPosition(0, 5);
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("[STANDBY] Waiting for matching RIFT game windows... (use --list / --pid / --hwnd / --title-contains)      ");
+                    Console.WriteLine("[STANDBY] Waiting for matching RIFT game windows... (use --list / --pid / --pids / --hwnd / --hwnds / --title-contains)      ");
                     Console.ForegroundColor = ConsoleColor.Gray;
                     Thread.Sleep(1000); // Low-power polling
                     continue;
@@ -209,7 +209,7 @@ namespace LeaderDecoder
                             if (zoneChanged)
                             {
                                 // Zone transition — stop all keys; resume next frame
-                                follow.EmergencyStop(windows[i].Hwnd);
+                                follow.EmergencyStop(i, windows[i].Hwnd);
                             }
                             else
                             {
@@ -218,7 +218,7 @@ namespace LeaderDecoder
                         }
                         else if (i > 0 && i < windows.Count && !isFollowEnabled)
                         {
-                            follow.EmergencyStop(windows[i].Hwnd);
+                            follow.EmergencyStop(i, windows[i].Hwnd);
                         }
 
                         // UI Dashboard
@@ -227,12 +227,18 @@ namespace LeaderDecoder
                         string status = $"HP:{state.PlayerHP,3:D3} THP:{state.TargetHP,5:D5} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | F:{state.RawFacing,5:F2}({headingText})";
                         string flagStr = $"{(state.IsCombat ? "[CB]" : "    ")} {(state.IsMounted ? "[MT]" : "    ")} {(state.IsAlive ? "    " : "[DEAD]")}{zoneFlag}";
                         Console.ForegroundColor = zoneChanged ? ConsoleColor.Yellow : ConsoleColor.Gray;
-                        Console.WriteLine($" SLOT[{i + 1}] {((i < windows.Count) ? windows[i].Title : "SIM_LEAD"),-12} | {status} | {flagStr}");
+                        string identity = (i < windows.Count)
+                            ? RiftWindowService.FormatCompactIdentity(windows[i])
+                            : "SIM_LEAD";
+                        Console.WriteLine($" SLOT[{i + 1}] {identity,-26} | {status} | {flagStr}");
                         Console.ForegroundColor = ConsoleColor.Gray;
                     }
                     else
                     {
-                        Console.WriteLine($" SLOT[{i + 1}] {(i < windows.Count ? windows[i].Title : "UNASSIGNED"),-12} | -- STANDBY --                                                                      ");
+                        string identity = i < windows.Count
+                            ? RiftWindowService.FormatCompactIdentity(windows[i])
+                            : "UNASSIGNED";
+                        Console.WriteLine($" SLOT[{i + 1}] {identity,-26} | -- STANDBY --                                                              ");
                     }
                 }
 
@@ -251,7 +257,9 @@ namespace LeaderDecoder
             return new RiftWindowFilter
             {
                 ProcessId = options.ProcessId,
+                ProcessIds = options.ProcessIds,
                 Hwnd = options.Hwnd,
+                Hwnds = options.Hwnds,
                 TitleContains = options.TitleContains
             };
         }
@@ -270,8 +278,8 @@ namespace LeaderDecoder
                 var window = windows[i];
                 var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
                 Console.WriteLine(
-                    $"[{i + 1}] PID {window.ProcessId} | HWND {RiftWindowService.FormatHwnd(window.Hwnd)} | " +
-                    $"{window.ProcessName} | {window.Title} | Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0}");
+                    $"[{i + 1}] {RiftWindowService.FormatIdentity(window)} | Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0}");
+                Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
             }
         }
 
@@ -311,6 +319,19 @@ namespace LeaderDecoder
                         options.ProcessId = pid;
                         break;
 
+                    case "--pids":
+                        if (!TryReadString(args, ref i, out string? pidListText, out error))
+                        {
+                            return false;
+                        }
+                        if (!RiftWindowService.TryParseProcessIdList(pidListText, out int[] processIds))
+                        {
+                            error = $"Could not parse PID list '{pidListText}'. Expected comma-separated integers.";
+                            return false;
+                        }
+                        options.ProcessIds = processIds;
+                        break;
+
                     case "--hwnd":
                         if (!TryReadString(args, ref i, out string? hwndText, out error))
                         {
@@ -322,6 +343,19 @@ namespace LeaderDecoder
                             return false;
                         }
                         options.Hwnd = hwnd;
+                        break;
+
+                    case "--hwnds":
+                        if (!TryReadString(args, ref i, out string? hwndListText, out error))
+                        {
+                            return false;
+                        }
+                        if (!RiftWindowService.TryParseHwndList(hwndListText, out IntPtr[] hwnds))
+                        {
+                            error = $"Could not parse HWND list '{hwndListText}'. Expected comma-separated values such as 0x351350,0x123456.";
+                            return false;
+                        }
+                        options.Hwnds = hwnds;
                         break;
 
                     case "--title-contains":
@@ -338,9 +372,22 @@ namespace LeaderDecoder
                 }
             }
 
-            if (options.ProcessId.HasValue && options.Hwnd.HasValue)
+            if (options.ProcessId.HasValue && options.ProcessIds is { Length: > 0 })
             {
-                error = "--pid and --hwnd cannot be combined.";
+                error = "--pid and --pids cannot be combined.";
+                return false;
+            }
+
+            if (options.Hwnd.HasValue && options.Hwnds is { Length: > 0 })
+            {
+                error = "--hwnd and --hwnds cannot be combined.";
+                return false;
+            }
+
+            if ((options.ProcessId.HasValue || options.ProcessIds is { Length: > 0 })
+                && (options.Hwnd.HasValue || options.Hwnds is { Length: > 0 }))
+            {
+                error = "PID-based filters and HWND-based filters cannot be combined.";
                 return false;
             }
 
@@ -383,14 +430,16 @@ namespace LeaderDecoder
         private static void PrintUsage()
         {
             Console.WriteLine("Usage:");
-            Console.WriteLine("  LeaderDecoder.exe --list [--pid N | --hwnd 0xHEX | --title-contains TEXT]");
+            Console.WriteLine("  LeaderDecoder.exe --list [--pid N | --pids N1,N2 | --hwnd 0xHEX | --hwnds 0xA,0xB | --title-contains TEXT]");
             Console.WriteLine("  LeaderDecoder.exe --sim");
             Console.WriteLine("  LeaderDecoder.exe --test");
             Console.WriteLine();
             Console.WriteLine("Options:");
             Console.WriteLine("  --list                 List detected/filtered RIFT windows and exit");
             Console.WriteLine("  --pid N                Target a specific process id");
+            Console.WriteLine("  --pids N1,N2           Target multiple process ids in the given order");
             Console.WriteLine("  --hwnd HEX             Target a specific HWND, e.g. 0x351350");
+            Console.WriteLine("  --hwnds A,B            Target multiple HWNDs in the given order");
             Console.WriteLine("  --title-contains TEXT  Filter windows by title substring");
             Console.WriteLine("  --sim                  Run simulation mode");
             Console.WriteLine("  --test                 Run encode/decode roundtrip tests");
@@ -404,9 +453,16 @@ namespace LeaderDecoder
             public bool SimMode { get; set; }
             public bool ListOnly { get; set; }
             public int? ProcessId { get; set; }
+            public int[]? ProcessIds { get; set; }
             public IntPtr? Hwnd { get; set; }
+            public IntPtr[]? Hwnds { get; set; }
             public string? TitleContains { get; set; }
-            public bool HasFilter => ProcessId.HasValue || Hwnd.HasValue || !string.IsNullOrWhiteSpace(TitleContains);
+            public bool HasFilter =>
+                ProcessId.HasValue ||
+                ProcessIds is { Length: > 0 } ||
+                Hwnd.HasValue ||
+                Hwnds is { Length: > 0 } ||
+                !string.IsNullOrWhiteSpace(TitleContains);
         }
     }
 }

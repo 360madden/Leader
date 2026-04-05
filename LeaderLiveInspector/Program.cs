@@ -76,9 +76,8 @@ namespace LeaderLiveInspector
                     var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
 
                     Console.WriteLine();
-                    Console.WriteLine(
-                        $"[{index + 1}] PID {window.ProcessId} | HWND {RiftWindowService.FormatHwnd(window.Hwnd)} | " +
-                        $"{window.ProcessName} | {window.Title}");
+                    Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
+                    Console.WriteLine($"Selectors: {RiftWindowService.FormatSelectorHints(window)}");
                     Console.WriteLine(BuildWindowSummary(snapshot, savedConfig));
 
                     using var bmp = capture.CaptureRegion(window.Hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
@@ -121,14 +120,20 @@ namespace LeaderLiveInspector
             return new RiftWindowFilter
             {
                 ProcessId = options.ProcessId,
+                ProcessIds = options.ProcessIds,
                 Hwnd = options.Hwnd,
+                Hwnds = options.Hwnds,
                 TitleContains = options.TitleContains
             };
         }
 
         private static bool HasExplicitFilter(Options options)
         {
-            return options.ProcessId.HasValue || options.Hwnd.HasValue || !string.IsNullOrWhiteSpace(options.TitleContains);
+            return options.ProcessId.HasValue
+                || options.ProcessIds is { Length: > 0 }
+                || options.Hwnd.HasValue
+                || options.Hwnds is { Length: > 0 }
+                || !string.IsNullOrWhiteSpace(options.TitleContains);
         }
 
         private static void PrintWindowList(List<RiftWindowInfo> windows)
@@ -137,9 +142,8 @@ namespace LeaderLiveInspector
             {
                 var window = windows[index];
                 var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
-                Console.WriteLine(
-                    $"[{index + 1}] PID {window.ProcessId} | HWND {RiftWindowService.FormatHwnd(window.Hwnd)} | " +
-                    $"{window.ProcessName} | {window.Title} | Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0}");
+                Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)} | Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0}");
+                Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
             }
         }
 
@@ -306,6 +310,21 @@ namespace LeaderLiveInspector
                         options.ProcessId = pidValue;
                         break;
 
+                    case "--pids":
+                        if (!TryReadString(args, ref i, out string? pidListText, out error))
+                        {
+                            return false;
+                        }
+
+                        if (!RiftWindowService.TryParseProcessIdList(pidListText, out int[] processIds))
+                        {
+                            error = $"Could not parse PID list '{pidListText}'. Expected comma-separated integers.";
+                            return false;
+                        }
+
+                        options.ProcessIds = processIds;
+                        break;
+
                     case "--hwnd":
                         if (!TryReadString(args, ref i, out string? hwndText, out error))
                         {
@@ -321,6 +340,21 @@ namespace LeaderLiveInspector
                         options.Hwnd = hwnd;
                         break;
 
+                    case "--hwnds":
+                        if (!TryReadString(args, ref i, out string? hwndListText, out error))
+                        {
+                            return false;
+                        }
+
+                        if (!RiftWindowService.TryParseHwndList(hwndListText, out IntPtr[] hwnds))
+                        {
+                            error = $"Could not parse HWND list '{hwndListText}'. Expected comma-separated values such as 0x351350,0x123456.";
+                            return false;
+                        }
+
+                        options.Hwnds = hwnds;
+                        break;
+
                     case "--title-contains":
                         if (!TryReadString(args, ref i, out string? titleText, out error))
                         {
@@ -334,6 +368,25 @@ namespace LeaderLiveInspector
                         error = $"Unknown option '{arg}'.";
                         return false;
                 }
+            }
+
+            if (options.ProcessId.HasValue && options.ProcessIds is { Length: > 0 })
+            {
+                error = "--pid and --pids cannot be combined.";
+                return false;
+            }
+
+            if (options.Hwnd.HasValue && options.Hwnds is { Length: > 0 })
+            {
+                error = "--hwnd and --hwnds cannot be combined.";
+                return false;
+            }
+
+            if ((options.ProcessId.HasValue || options.ProcessIds is { Length: > 0 })
+                && (options.Hwnd.HasValue || options.Hwnds is { Length: > 0 }))
+            {
+                error = "PID-based filters and HWND-based filters cannot be combined.";
+                return false;
             }
 
             return true;
@@ -378,7 +431,9 @@ namespace LeaderLiveInspector
             Console.WriteLine("Usage:");
             Console.WriteLine("  LeaderLiveInspector.exe --list");
             Console.WriteLine("  LeaderLiveInspector.exe --pid 127928");
+            Console.WriteLine("  LeaderLiveInspector.exe --pids 127928,128104 --watch");
             Console.WriteLine("  LeaderLiveInspector.exe --hwnd 0x123456 --save-dir C:\\temp");
+            Console.WriteLine("  LeaderLiveInspector.exe --hwnds 0x351350,0x123456 --save-dir C:\\temp");
             Console.WriteLine("  LeaderLiveInspector.exe --title-contains RIFT --watch");
             Console.WriteLine();
             Console.WriteLine("Options:");
@@ -386,7 +441,9 @@ namespace LeaderLiveInspector
             Console.WriteLine("  --watch                Refresh repeatedly");
             Console.WriteLine("  --save-dir PATH        Save captured strips to PATH");
             Console.WriteLine("  --pid N                Filter to a specific process id");
+            Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
             Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x123456");
+            Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
             Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
             Console.WriteLine("  --help                 Show this help");
         }
@@ -451,7 +508,9 @@ namespace LeaderLiveInspector
             public bool ListOnly { get; set; }
             public string? SaveDir { get; set; }
             public int? ProcessId { get; set; }
+            public int[]? ProcessIds { get; set; }
             public IntPtr? Hwnd { get; set; }
+            public IntPtr[]? Hwnds { get; set; }
             public string? TitleContains { get; set; }
         }
     }

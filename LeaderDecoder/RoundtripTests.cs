@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using LeaderDecoder.Models;
 using LeaderDecoder.Services;
@@ -53,6 +54,9 @@ namespace LeaderDecoder
             TestFlags("Combat only",   true,  false, false, true,  false);
             TestFlags("All set",       true,  true,  true,  true,  true);
             TestFlags("Mounted+Alive", false, false, false, true,  true);
+            TestEmergencyStopResetsFollowState();
+            TestWindowFilterProcessIdOrder();
+            TestWindowFilterHwndOrder();
 
             // ── Full state roundtrip ─────────────────────────────────────
             TestFullState("Typical moving combat state", new GameState
@@ -151,6 +155,87 @@ namespace LeaderDecoder
 
             Assert($"Full   [{name}]", xOk && yOk && zOk && hOk && fOk,
                 $"X:{decoded.CoordX:F1} Y:{decoded.CoordY:F1} Z:{decoded.CoordZ:F1} H:{decoded.RawFacing:F4}");
+        }
+
+        private static void TestEmergencyStopResetsFollowState()
+        {
+            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
+            var type = typeof(FollowController);
+
+            var movingField = type.GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
+            var lastErrorField = type.GetField("_lastError", BindingFlags.NonPublic | BindingFlags.Instance);
+            var wSinceField = type.GetField("_wForwardSince", BindingFlags.NonPublic | BindingFlags.Instance);
+            var distField = type.GetField("_distanceAtPress", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (movingField == null || lastErrorField == null || wSinceField == null || distField == null)
+            {
+                Assert("Follow [EmergencyStop resets slot state]", false, "reflection lookup failed");
+                return;
+            }
+
+            var moving = (bool[])movingField.GetValue(controller)!;
+            var lastError = (float[])lastErrorField.GetValue(controller)!;
+            var wSince = (DateTime[])wSinceField.GetValue(controller)!;
+            var dist = (float[])distField.GetValue(controller)!;
+
+            moving[1] = true;
+            lastError[1] = 1.25f;
+            wSince[1] = DateTime.Now;
+            dist[1] = 9.5f;
+
+            controller.EmergencyStop(1, IntPtr.Zero);
+
+            bool ok = !moving[1]
+                   && Math.Abs(lastError[1]) < 0.0001f
+                   && wSince[1] == DateTime.MinValue
+                   && Math.Abs(dist[1] - float.MaxValue) < 0.0001f;
+
+            Assert("Follow [EmergencyStop resets slot state]", ok,
+                $"moving={moving[1]} err={lastError[1]} since={wSince[1]:O} dist={dist[1]}");
+        }
+
+        private static void TestWindowFilterProcessIdOrder()
+        {
+            var windows = new[]
+            {
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1001, ProcessId = 101, BaseAddress = 0 },
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1002, ProcessId = 202, BaseAddress = 0 },
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1003, ProcessId = 303, BaseAddress = 0 },
+            };
+
+            var filtered = RiftWindowService.FilterWindows(windows, new RiftWindowFilter
+            {
+                ProcessIds = new[] { 303, 101 }
+            });
+
+            bool ok = filtered.Count == 2
+                && filtered[0].ProcessId == 303
+                && filtered[1].ProcessId == 101;
+
+            Assert("Window [PID list preserves order]", ok,
+                $"got [{string.Join(",", filtered.Select(window => window.ProcessId))}]");
+        }
+
+        private static void TestWindowFilterHwndOrder()
+        {
+            var windows = new[]
+            {
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1001, ProcessId = 101, BaseAddress = 0 },
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1002, ProcessId = 202, BaseAddress = 0 },
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1003, ProcessId = 303, BaseAddress = 0 },
+            };
+
+            var filtered = RiftWindowService.FilterWindows(windows, new RiftWindowFilter
+            {
+                Hwnds = new[] { (IntPtr)0x1002, (IntPtr)0x1001 }
+            });
+
+            bool ok = filtered.Count == 2
+                && filtered[0].Hwnd == (IntPtr)0x1002
+                && filtered[1].Hwnd == (IntPtr)0x1001;
+
+            Assert("Window [HWND list preserves order]", ok,
+                $"got [{string.Join(",", filtered.Select(window => RiftWindowService.FormatHwnd(window.Hwnd)))}]");
         }
 
         private static GameState BuildState() => new GameState

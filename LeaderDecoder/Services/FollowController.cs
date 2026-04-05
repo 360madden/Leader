@@ -54,8 +54,7 @@ namespace LeaderDecoder.Services
             // ── 0. Death guard ────────────────────────────────────────────
             if (!follower.IsAlive)
             {
-                EmergencyStop(hwnd);
-                _isMovingForward[slot] = false;
+                EmergencyStop(slot, hwnd);
                 return;
             }
 
@@ -125,13 +124,23 @@ namespace LeaderDecoder.Services
             }
         }
 
-        public void EmergencyStop(IntPtr hwnd)
+        public void EmergencyStop(int slot, IntPtr hwnd)
         {
             _input.SendKeyUp(hwnd, InputEngine.RiftKey.W);
             _input.SendKeyUp(hwnd, InputEngine.RiftKey.A);
             _input.SendKeyUp(hwnd, InputEngine.RiftKey.S);
             _input.SendKeyUp(hwnd, InputEngine.RiftKey.D);
+
+            if (slot > 0 && slot < _isMovingForward.Length)
+            {
+                _isMovingForward[slot] = false;
+                _lastError[slot] = 0;
+                _wForwardSince[slot] = DateTime.MinValue;
+                _distanceAtPress[slot] = float.MaxValue;
+            }
         }
+
+        public void EmergencyStop(IntPtr hwnd) => EmergencyStop(-1, hwnd);
 
         private static float NormalizeAngle(float a)
         {

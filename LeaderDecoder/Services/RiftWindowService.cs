@@ -19,7 +19,9 @@ namespace LeaderDecoder.Services
     public sealed class RiftWindowFilter
     {
         public int? ProcessId { get; init; }
+        public int[]? ProcessIds { get; init; }
         public IntPtr? Hwnd { get; init; }
+        public IntPtr[]? Hwnds { get; init; }
         public string? TitleContains { get; init; }
     }
 
@@ -84,7 +86,25 @@ namespace LeaderDecoder.Services
                 return windows.ToList();
             }
 
-            return windows.Where(window => MatchesFilter(window, filter)).ToList();
+            var filtered = windows.Where(window => MatchesFilter(window, filter)).ToList();
+
+            if (filter.Hwnds is { Length: > 0 })
+            {
+                return filtered
+                    .OrderBy(window => IndexOf(filter.Hwnds, window.Hwnd))
+                    .ThenBy(window => window.ProcessId)
+                    .ToList();
+            }
+
+            if (filter.ProcessIds is { Length: > 0 })
+            {
+                return filtered
+                    .OrderBy(window => IndexOf(filter.ProcessIds, window.ProcessId))
+                    .ThenBy(window => window.ProcessId)
+                    .ToList();
+            }
+
+            return filtered;
         }
 
         public static bool MatchesFilter(RiftWindowInfo window, RiftWindowFilter filter)
@@ -94,7 +114,17 @@ namespace LeaderDecoder.Services
                 return false;
             }
 
+            if (filter.ProcessIds is { Length: > 0 } && !filter.ProcessIds.Contains(window.ProcessId))
+            {
+                return false;
+            }
+
             if (filter.Hwnd.HasValue && window.Hwnd != filter.Hwnd.Value)
+            {
+                return false;
+            }
+
+            if (filter.Hwnds is { Length: > 0 } && !filter.Hwnds.Contains(window.Hwnd))
             {
                 return false;
             }
@@ -134,6 +164,21 @@ namespace LeaderDecoder.Services
             return "0x" + hwnd.ToInt64().ToString("X");
         }
 
+        public static string FormatIdentity(RiftWindowInfo window)
+        {
+            return $"PID {window.ProcessId} | HWND {FormatHwnd(window.Hwnd)} | {window.ProcessName} | {window.Title}";
+        }
+
+        public static string FormatCompactIdentity(RiftWindowInfo window)
+        {
+            return $"{window.ProcessName}:{window.ProcessId}@{FormatHwnd(window.Hwnd)}";
+        }
+
+        public static string FormatSelectorHints(RiftWindowInfo window)
+        {
+            return $"--pid {window.ProcessId} | --hwnd {FormatHwnd(window.Hwnd)}";
+        }
+
         public static bool TryParseHwnd(string? value, out IntPtr hwnd)
         {
             hwnd = IntPtr.Zero;
@@ -155,6 +200,77 @@ namespace LeaderDecoder.Services
 
             hwnd = new IntPtr(rawValue);
             return hwnd != IntPtr.Zero;
+        }
+
+        public static bool TryParseProcessIdList(string? value, out int[] processIds)
+        {
+            processIds = Array.Empty<int>();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var parsed = new List<int>();
+            foreach (string token in value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId))
+                {
+                    processIds = Array.Empty<int>();
+                    return false;
+                }
+
+                parsed.Add(processId);
+            }
+
+            if (parsed.Count == 0)
+            {
+                return false;
+            }
+
+            processIds = parsed.Distinct().ToArray();
+            return true;
+        }
+
+        public static bool TryParseHwndList(string? value, out IntPtr[] hwnds)
+        {
+            hwnds = Array.Empty<IntPtr>();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var parsed = new List<IntPtr>();
+            foreach (string token in value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!TryParseHwnd(token, out IntPtr hwnd))
+                {
+                    hwnds = Array.Empty<IntPtr>();
+                    return false;
+                }
+
+                parsed.Add(hwnd);
+            }
+
+            if (parsed.Count == 0)
+            {
+                return false;
+            }
+
+            hwnds = parsed.Distinct().ToArray();
+            return true;
+        }
+
+        private static int IndexOf<T>(IReadOnlyList<T> values, T value) where T : notnull
+        {
+            for (int index = 0; index < values.Count; index++)
+            {
+                if (EqualityComparer<T>.Default.Equals(values[index], value))
+                {
+                    return index;
+                }
+            }
+
+            return int.MaxValue;
         }
 
         private static class Win32
