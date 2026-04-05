@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -12,7 +11,9 @@ namespace LeaderDecoder.Services
     /// </summary>
     public class MemoryEngine
     {
-        [DllImport("kernel32.dll")]
+        private readonly DiagnosticService? _diag;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr OpenProcess(int dwDesiredAccess, bool bInheritHandle, int dwProcessId);
 
         [DllImport("kernel32.dll")]
@@ -22,6 +23,11 @@ namespace LeaderDecoder.Services
         private static extern bool CloseHandle(IntPtr hObject);
 
         private const int PROCESS_WM_READ = 0x0010;
+
+        public MemoryEngine(DiagnosticService? diag = null)
+        {
+            _diag = diag;
+        }
 
         /// <summary>
         /// Safely reads raw bytes from memory. Fails silently.
@@ -84,7 +90,19 @@ namespace LeaderDecoder.Services
 
         public IntPtr Attach(int pid)
         {
-            return OpenProcess(PROCESS_WM_READ, false, pid);
+            IntPtr handle = OpenProcess(PROCESS_WM_READ, false, pid);
+            if (handle == IntPtr.Zero)
+            {
+                _diag?.LogToolFailure(
+                    source: nameof(MemoryEngine),
+                    operation: "OpenProcess",
+                    detail: $"Failed to attach to process {pid} for memory reads.",
+                    context: $"pid={pid} win32={Marshal.GetLastWin32Error()}",
+                    dedupeKey: $"memory-attach|{pid}",
+                    throttleSeconds: 30.0);
+            }
+
+            return handle;
         }
 
         public void Detach(IntPtr handle)

@@ -61,13 +61,13 @@ namespace LeaderDecoder
             Console.WriteLine("================================================================================");
 
             // Initialize Modular Services
-            var capture = new CaptureEngine();
+            var diag = new DiagnosticService();
+            var capture = new CaptureEngine(diag);
             var telemetry = new TelemetryService();
             var nav = new NavigationKernel();
-            var input = new InputEngine();
-            var follow = new FollowController(input, nav, settings);
-            var diag = new DiagnosticService();
-            var memory = new MemoryEngine();
+            var input = new InputEngine(diag);
+            var follow = new FollowController(input, nav, settings, diag);
+            var memory = new MemoryEngine(diag);
 
             bool isSimMode = options.SimMode;
             bool isFollowEnabled = false;
@@ -76,7 +76,7 @@ namespace LeaderDecoder
             List<RiftLockedRoleAssignment>? lockedRoles = null;
 
             // Global hotkey — ScrollLock toggles follow even inside RIFT
-            using var hotkey = new GlobalHotkeyService();
+            using var hotkey = new GlobalHotkeyService(diag);
             hotkey.OnToggleFollow = () =>
             {
                 toggleFollowRequested = true;
@@ -230,6 +230,14 @@ namespace LeaderDecoder
                             if (i > 0 && i < slots.Count && slots[i].Window is not null)
                             {
                                 follow.EmergencyStop(i, slots[i].Window!.Hwnd);
+                                LogControllerIdle(
+                                    diag,
+                                    isLoggingEnabled && isFollowEnabled,
+                                    i,
+                                    "role_mismatch",
+                                    roleMatched: false,
+                                    leaderDistance: gameStates[0].IsValid ? nav.CalculateDistance(state, gameStates[0]) : null,
+                                    withinLeaderBand: gameStates[0].IsValid ? nav.CalculateDistance(state, gameStates[0]) <= settings.FollowDistanceMax : null);
                             }
 
                             string mismatchIdentity = (i < slots.Count && slots[i].Window is not null)
@@ -254,15 +262,32 @@ namespace LeaderDecoder
                             {
                                 // Zone transition — stop all keys; resume next frame
                                 follow.EmergencyStop(i, slots[i].Window!.Hwnd);
+                                LogControllerIdle(
+                                    diag,
+                                    isLoggingEnabled,
+                                    i,
+                                    "zone_transition_reset",
+                                    roleMatched: true,
+                                    leaderDistance: nav.CalculateDistance(state, gameStates[0]),
+                                    withinLeaderBand: nav.CalculateDistance(state, gameStates[0]) <= settings.FollowDistanceMax);
                             }
                             else
                             {
-                                follow.Update(i, state, gameStates[0], slots[i].Window!.Hwnd);
+                                follow.Update(i, state, gameStates[0], slots[i].Window!.Hwnd, isLoggingEnabled);
                             }
                         }
                         else if (i > 0 && i < slots.Count && slots[i].Window is not null && (!gameStates[0].IsValid || !isFollowEnabled))
                         {
                             follow.EmergencyStop(i, slots[i].Window!.Hwnd);
+                            if (isFollowEnabled && isLoggingEnabled && !gameStates[0].IsValid)
+                            {
+                                LogControllerIdle(
+                                    diag,
+                                    true,
+                                    i,
+                                    "leader_invalid",
+                                    roleMatched: true);
+                            }
                         }
 
                         // UI Dashboard
@@ -290,6 +315,15 @@ namespace LeaderDecoder
                         if (i > 0 && i < slots.Count && slots[i].Window is not null)
                         {
                             follow.EmergencyStop(i, slots[i].Window!.Hwnd);
+                            if (isFollowEnabled && isLoggingEnabled)
+                            {
+                                LogControllerIdle(
+                                    diag,
+                                    true,
+                                    i,
+                                    "telemetry_invalid",
+                                    roleMatched: true);
+                            }
                         }
 
                         string identity = RiftWindowService.FormatExpectedIdentity(i < slots.Count ? slots[i] : null);
@@ -313,6 +347,32 @@ namespace LeaderDecoder
             }
 
             return filter;
+        }
+
+        private static void LogControllerIdle(
+            DiagnosticService diag,
+            bool isLoggingEnabled,
+            int slotIndex,
+            string idleReason,
+            bool roleMatched,
+            float? leaderDistance = null,
+            bool? withinLeaderBand = null)
+        {
+            if (!isLoggingEnabled)
+            {
+                return;
+            }
+
+            diag.LogControllerAction(new ControllerActionLogEntry
+            {
+                Slot = slotIndex + 1,
+                LeaderDistance = leaderDistance,
+                SelectedAxis = "None",
+                IdleReason = idleReason,
+                RoleMatched = roleMatched,
+                ProgressState = "Unknown",
+                WithinLeaderBand = withinLeaderBand,
+            });
         }
 
         private static bool ToggleFollowState(

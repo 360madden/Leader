@@ -28,128 +28,146 @@ internal static class Program
 
     private static int Main(string[] args)
     {
-        if (!TryParseOptions(args, out var options, out string? error))
+        var diag = new DiagnosticService();
+
+        try
         {
-            Console.Error.WriteLine(error);
-            Console.Error.WriteLine();
-            PrintUsage();
-            return 1;
-        }
+            if (!TryParseOptions(args, out var options, out string? error))
+            {
+                Console.Error.WriteLine(error);
+                Console.Error.WriteLine();
+                PrintUsage();
+                return 1;
+            }
 
-        if (options.ShowHelp)
-        {
-            PrintUsage();
-            return 0;
-        }
+            if (options.ShowHelp)
+            {
+                PrintUsage();
+                return 0;
+            }
 
-        Console.Title = "Leader Window Resizer";
-        Console.WriteLine("============================================================");
-        Console.WriteLine("Leader Window Resizer");
-        Console.WriteLine("Resizes live RIFT client windows by client-area resolution.");
-        Console.WriteLine("============================================================");
+            Console.Title = "Leader Window Resizer";
+            Console.WriteLine("============================================================");
+            Console.WriteLine("Leader Window Resizer");
+            Console.WriteLine("Resizes live RIFT client windows by client-area resolution.");
+            Console.WriteLine("============================================================");
 
-        var allWindows = RiftWindowService.FindRiftWindows();
-        var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
+            var allWindows = RiftWindowService.FindRiftWindows();
+            var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
 
-        Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
-        if (HasExplicitFilter(options))
-        {
-            Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
-        }
+            Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
+            if (HasExplicitFilter(options))
+            {
+                Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
+            }
 
-        for (int i = 0; i < filteredWindows.Count; i++)
-        {
-            var snapshot = RiftWindowService.GetWindowSnapshot(filteredWindows[i].Hwnd);
-            Console.WriteLine(
-                $"[{i + 1}] {RiftWindowService.FormatIdentity(filteredWindows[i])} | " +
-                $"Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0} | " +
-                $"Window={snapshot.WindowLeft ?? 0},{snapshot.WindowTop ?? 0}");
-            Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(filteredWindows[i])}");
-        }
+            for (int i = 0; i < filteredWindows.Count; i++)
+            {
+                var snapshot = RiftWindowService.GetWindowSnapshot(filteredWindows[i].Hwnd);
+                Console.WriteLine(
+                    $"[{i + 1}] {RiftWindowService.FormatIdentity(filteredWindows[i])} | " +
+                    $"Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0} | " +
+                    $"Window={snapshot.WindowLeft ?? 0},{snapshot.WindowTop ?? 0}");
+                Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(filteredWindows[i])}");
+            }
 
-        if (filteredWindows.Count == 0)
-        {
-            Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
-            return 1;
-        }
+            if (filteredWindows.Count == 0)
+            {
+                Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
+                return 1;
+            }
 
-        if (options.ListOnly && !options.HasResizeIntent)
-        {
-            return 0;
-        }
+            if (options.ListOnly && !options.HasResizeIntent)
+            {
+                return 0;
+            }
 
-        if (!options.HasResizeIntent)
-        {
-            Console.WriteLine();
-            Console.WriteLine("No resize target was supplied.");
-            PrintUsage();
-            return 1;
-        }
-
-        var selected = SelectWindows(filteredWindows, options);
-        if (selected.Count == 0)
-        {
-            Console.Error.WriteLine("No matching RIFT windows were selected.");
-            return 1;
-        }
-
-        Console.WriteLine();
-        Console.WriteLine(BuildIntentSummary(options, selected.Count));
-
-        CaptureEngine? capture = options.Inspect ? new CaptureEngine() : null;
-        bool anyFailure = false;
-
-        for (int index = 0; index < selected.Count; index++)
-        {
-            var window = selected[index];
-            var before = RiftWindowService.GetWindowSnapshot(window.Hwnd);
-
-            if (before.ClientWidth is null || before.ClientHeight is null)
+            if (!options.HasResizeIntent)
             {
                 Console.WriteLine();
-                Console.WriteLine($"[{index + 1}] {window.Title}");
-                Console.WriteLine("  Could not read current client geometry.");
-                anyFailure = true;
-                continue;
+                Console.WriteLine("No resize target was supplied.");
+                PrintUsage();
+                return 1;
             }
 
-            var targetClient = ResolveTargetClientSize(options, before);
-            int targetLeft = ResolveCoordinate(options.Left, before.WindowLeft ?? 32, options.StepX, index);
-            int targetTop = ResolveCoordinate(options.Top, before.WindowTop ?? 32, options.StepY, index);
-            var result = ResizeWindow(window.Hwnd, targetLeft, targetTop, targetClient.Width, targetClient.Height);
+            var selected = SelectWindows(filteredWindows, options);
+            if (selected.Count == 0)
+            {
+                Console.Error.WriteLine("No matching RIFT windows were selected.");
+                return 1;
+            }
 
             Console.WriteLine();
-            Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
-            Console.WriteLine($"  Selectors:     {RiftWindowService.FormatSelectorHints(window)}");
-            Console.WriteLine($"  Before client: {before.ClientWidth}x{before.ClientHeight}");
-            Console.WriteLine($"  After client:  {result.After.ClientWidth}x{result.After.ClientHeight}");
-            Console.WriteLine($"  Target pos:    {targetLeft},{targetTop}");
-            Console.WriteLine($"  Match:         {result.ExactMatch}");
+            Console.WriteLine(BuildIntentSummary(options, selected.Count));
 
-            if (!result.ExactMatch)
-            {
-                anyFailure = true;
-                Console.WriteLine("  Warning: final client size did not exactly match the requested target.");
-            }
+            CaptureEngine? capture = options.Inspect ? new CaptureEngine(diag) : null;
+            bool anyFailure = false;
 
-            if (capture is not null)
+            for (int index = 0; index < selected.Count; index++)
             {
-                if (options.WaitMs > 0)
+                var window = selected[index];
+                var before = RiftWindowService.GetWindowSnapshot(window.Hwnd);
+
+                if (before.ClientWidth is null || before.ClientHeight is null)
                 {
-                    Thread.Sleep(options.WaitMs);
+                    Console.WriteLine();
+                    Console.WriteLine($"[{index + 1}] {window.Title}");
+                    Console.WriteLine("  Could not read current client geometry.");
+                    anyFailure = true;
+                    continue;
                 }
 
-                using var bmp = capture.CaptureRegion(window.Hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
-                var analysis = StripInspector.Analyze(bmp);
-                Console.WriteLine($"  {StripInspector.FormatStateSummary(analysis.State)}");
-                foreach (string line in StripInspector.FormatSampleTable(analysis).Split(Environment.NewLine))
+                var targetClient = ResolveTargetClientSize(options, before);
+                int targetLeft = ResolveCoordinate(options.Left, before.WindowLeft ?? 32, options.StepX, index);
+                int targetTop = ResolveCoordinate(options.Top, before.WindowTop ?? 32, options.StepY, index);
+                var result = ResizeWindow(window.Hwnd, targetLeft, targetTop, targetClient.Width, targetClient.Height);
+
+                Console.WriteLine();
+                Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
+                Console.WriteLine($"  Selectors:     {RiftWindowService.FormatSelectorHints(window)}");
+                Console.WriteLine($"  Before client: {before.ClientWidth}x{before.ClientHeight}");
+                Console.WriteLine($"  After client:  {result.After.ClientWidth}x{result.After.ClientHeight}");
+                Console.WriteLine($"  Target pos:    {targetLeft},{targetTop}");
+                Console.WriteLine($"  Match:         {result.ExactMatch}");
+
+                if (!result.ExactMatch)
                 {
-                    Console.WriteLine($"  {line}");
+                    anyFailure = true;
+                    Console.WriteLine("  Warning: final client size did not exactly match the requested target.");
+                }
+
+                if (capture is not null)
+                {
+                    if (options.WaitMs > 0)
+                    {
+                        Thread.Sleep(options.WaitMs);
+                    }
+
+                    using var bmp = capture.CaptureRegion(window.Hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
+                    var analysis = StripInspector.Analyze(bmp);
+                    Console.WriteLine($"  {StripInspector.FormatStateSummary(analysis.State)}");
+                    foreach (string line in StripInspector.FormatSampleTable(analysis).Split(Environment.NewLine))
+                    {
+                        Console.WriteLine($"  {line}");
+                    }
                 }
             }
+
+            return anyFailure ? 1 : 0;
         }
-
-        return anyFailure ? 1 : 0;
+        catch (Exception ex)
+        {
+            diag.LogToolFailure(
+                source: "LeaderWindowResizer",
+                operation: "UnhandledException",
+                detail: "Window resizer crashed.",
+                context: string.Join(" ", args),
+                ex: ex,
+                dedupeKey: "window-resizer-unhandled",
+                throttleSeconds: 1.0);
+            Console.Error.WriteLine($"Unhandled error: {ex.Message}");
+            return 1;
+        }
     }
 
     private static RiftWindowFilter? BuildFilter(Options options)

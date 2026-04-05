@@ -13,7 +13,9 @@ namespace LeaderDecoder.Services
     /// </summary>
     public class InputEngine
     {
-        [DllImport("user32.dll")]
+        private readonly DiagnosticService? _diag;
+
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll")]
@@ -63,6 +65,11 @@ namespace LeaderDecoder.Services
 
         private static readonly VK[] _vkMap = new VK[256];
 
+        public InputEngine(DiagnosticService? diag = null)
+        {
+            _diag = diag;
+        }
+
         static InputEngine()
         {
             _vkMap[(int)RiftKey.Q]     = VK.Q;
@@ -108,7 +115,15 @@ namespace LeaderDecoder.Services
         public virtual void SendScanCodeDown(IntPtr hwnd, byte scanCode)
         {
             uint vk = ResolveVirtualKey(scanCode);
-            PostMessage(hwnd, WM_KEYDOWN, (IntPtr)vk, BuildLParam(scanCode, false));
+            if (!PostMessage(hwnd, WM_KEYDOWN, (IntPtr)vk, BuildLParam(scanCode, false)))
+            {
+                _diag?.LogToolFailure(
+                    source: nameof(InputEngine),
+                    operation: "PostMessageKeyDown",
+                    detail: $"Failed to post key-down for scanCode {scanCode}.",
+                    context: $"hwnd=0x{hwnd.ToInt64():X} vk={vk} win32={Marshal.GetLastWin32Error()}",
+                    dedupeKey: $"keydown|{hwnd}|{scanCode}");
+            }
         }
 
         /// <summary>
@@ -117,7 +132,15 @@ namespace LeaderDecoder.Services
         public virtual void SendScanCodeUp(IntPtr hwnd, byte scanCode)
         {
             uint vk = ResolveVirtualKey(scanCode);
-            PostMessage(hwnd, WM_KEYUP, (IntPtr)vk, BuildLParam(scanCode, true));
+            if (!PostMessage(hwnd, WM_KEYUP, (IntPtr)vk, BuildLParam(scanCode, true)))
+            {
+                _diag?.LogToolFailure(
+                    source: nameof(InputEngine),
+                    operation: "PostMessageKeyUp",
+                    detail: $"Failed to post key-up for scanCode {scanCode}.",
+                    context: $"hwnd=0x{hwnd.ToInt64():X} vk={vk} win32={Marshal.GetLastWin32Error()}",
+                    dedupeKey: $"keyup|{hwnd}|{scanCode}");
+            }
         }
 
         /// <summary>

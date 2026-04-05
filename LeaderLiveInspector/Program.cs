@@ -13,101 +13,119 @@ namespace LeaderLiveInspector
     {
         private static int Main(string[] args)
         {
-            if (!TryParseOptions(args, out var options, out string? error))
+            var diag = new DiagnosticService();
+
+            try
             {
-                Console.Error.WriteLine(error);
-                Console.Error.WriteLine();
-                PrintUsage();
-                return 1;
-            }
-
-            if (options.ShowHelp)
-            {
-                PrintUsage();
-                return 0;
-            }
-
-            Console.Title = "Leader Live Inspector";
-            Console.WriteLine("============================================================");
-            Console.WriteLine("Leader Live Inspector (non-invasive)");
-            Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
-            Console.WriteLine("============================================================");
-
-            var capture = new CaptureEngine();
-
-            do
-            {
-                if (options.Watch)
+                if (!TryParseOptions(args, out var options, out string? error))
                 {
-                    Console.Clear();
-                    Console.WriteLine("============================================================");
-                    Console.WriteLine("Leader Live Inspector (non-invasive)");
-                    Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
-                    Console.WriteLine("============================================================");
+                    Console.Error.WriteLine(error);
+                    Console.Error.WriteLine();
+                    PrintUsage();
+                    return 1;
                 }
 
-                var allWindows = RiftWindowService.FindRiftWindows();
-                var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
-                var savedConfig = TryLoadSavedRiftConfig();
-
-                Console.WriteLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
-                if (HasExplicitFilter(options))
+                if (options.ShowHelp)
                 {
-                    Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
-                }
-
-                Console.WriteLine(BuildSavedConfigSummary(savedConfig));
-
-                if (filteredWindows.Count == 0)
-                {
-                    Console.WriteLine("No matching live RIFT windows with a main handle were found.");
-                }
-
-                if (options.ListOnly && !options.Watch)
-                {
-                    PrintWindowList(filteredWindows);
+                    PrintUsage();
                     return 0;
                 }
 
-                for (int index = 0; index < filteredWindows.Count; index++)
+                Console.Title = "Leader Live Inspector";
+                Console.WriteLine("============================================================");
+                Console.WriteLine("Leader Live Inspector (non-invasive)");
+                Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
+                Console.WriteLine("============================================================");
+
+                var capture = new CaptureEngine(diag);
+
+                do
                 {
-                    var window = filteredWindows[index];
-                    var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
-
-                    Console.WriteLine();
-                    Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
-                    Console.WriteLine($"Selectors: {RiftWindowService.FormatSelectorHints(window)}");
-                    Console.WriteLine(BuildWindowSummary(snapshot, savedConfig));
-
-                    using var bmp = capture.CaptureRegion(window.Hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
-                    var analysis = StripInspector.Analyze(bmp);
-
-                    Console.WriteLine(StripInspector.FormatStateSummary(analysis.State));
-                    Console.WriteLine(StripInspector.FormatSampleTable(analysis));
-
-                    if (!string.IsNullOrWhiteSpace(options.SaveDir))
+                    if (options.Watch)
                     {
-                        Directory.CreateDirectory(options.SaveDir);
-                        string safeTitle = SanitizeFileName(window.Title);
-                        string outputPath = Path.Combine(
-                            options.SaveDir,
-                            $"{DateTime.Now:yyyyMMdd_HHmmssfff}_{safeTitle}_{window.ProcessId}_{RiftWindowService.FormatHwnd(window.Hwnd).Replace("0x", string.Empty)}.png");
-                        string actualOutputPath = SaveBitmapCopy(bmp, outputPath);
-                        Console.WriteLine($"Saved capture: {actualOutputPath}");
+                        Console.Clear();
+                        Console.WriteLine("============================================================");
+                        Console.WriteLine("Leader Live Inspector (non-invasive)");
+                        Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
+                        Console.WriteLine("============================================================");
+                    }
+
+                    var allWindows = RiftWindowService.FindRiftWindows();
+                    var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
+                    var savedConfig = TryLoadSavedRiftConfig();
+
+                    Console.WriteLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                    Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
+                    if (HasExplicitFilter(options))
+                    {
+                        Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
+                    }
+
+                    Console.WriteLine(BuildSavedConfigSummary(savedConfig));
+
+                    if (filteredWindows.Count == 0)
+                    {
+                        Console.WriteLine("No matching live RIFT windows with a main handle were found.");
+                    }
+
+                    if (options.ListOnly && !options.Watch)
+                    {
+                        PrintWindowList(filteredWindows);
+                        return 0;
+                    }
+
+                    for (int index = 0; index < filteredWindows.Count; index++)
+                    {
+                        var window = filteredWindows[index];
+                        var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
+
+                        Console.WriteLine();
+                        Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
+                        Console.WriteLine($"Selectors: {RiftWindowService.FormatSelectorHints(window)}");
+                        Console.WriteLine(BuildWindowSummary(snapshot, savedConfig));
+
+                        using var bmp = capture.CaptureRegion(window.Hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
+                        var analysis = StripInspector.Analyze(bmp);
+
+                        Console.WriteLine(StripInspector.FormatStateSummary(analysis.State));
+                        Console.WriteLine(StripInspector.FormatSampleTable(analysis));
+
+                        if (!string.IsNullOrWhiteSpace(options.SaveDir))
+                        {
+                            Directory.CreateDirectory(options.SaveDir);
+                            string safeTitle = SanitizeFileName(window.Title);
+                            string outputPath = Path.Combine(
+                                options.SaveDir,
+                                $"{DateTime.Now:yyyyMMdd_HHmmssfff}_{safeTitle}_{window.ProcessId}_{RiftWindowService.FormatHwnd(window.Hwnd).Replace("0x", string.Empty)}.png");
+                            string actualOutputPath = SaveBitmapCopy(bmp, outputPath);
+                            Console.WriteLine($"Saved capture: {actualOutputPath}");
+                        }
+                    }
+
+                    if (options.Watch)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Press Ctrl+C to stop. Refreshing in 1000 ms...");
+                        Thread.Sleep(1000);
                     }
                 }
+                while (options.Watch);
 
-                if (options.Watch)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("Press Ctrl+C to stop. Refreshing in 1000 ms...");
-                    Thread.Sleep(1000);
-                }
+                return 0;
             }
-            while (options.Watch);
-
-            return 0;
+            catch (Exception ex)
+            {
+                diag.LogToolFailure(
+                    source: "LeaderLiveInspector",
+                    operation: "UnhandledException",
+                    detail: "Live inspector crashed.",
+                    context: string.Join(" ", args),
+                    ex: ex,
+                    dedupeKey: "live-inspector-unhandled",
+                    throttleSeconds: 1.0);
+                Console.Error.WriteLine($"Unhandled error: {ex.Message}");
+                return 1;
+            }
         }
 
         private static RiftWindowFilter? BuildFilter(Options options)

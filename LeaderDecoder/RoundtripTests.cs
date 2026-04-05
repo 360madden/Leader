@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Reflection;
@@ -72,6 +73,8 @@ namespace LeaderDecoder
             TestEmergencyStopResetsBasisAndReleasesKeys();
             TestMountSyncUsesConfiguredKey();
             TestAssistUsesConfiguredKey();
+            TestControllerDecisionLogCapturesIssuedPulse();
+            TestToolFailureLogCapturesFailureEntry();
             TestZoneChangeClearsHeadingHistory();
             TestZoneMismatchStopsFollow();
             TestRoleLockCapturesCurrentAssignments();
@@ -619,6 +622,65 @@ namespace LeaderDecoder
                 $"taps=[{string.Join(",", input.TappedScanCodes)}]");
         }
 
+        private static void TestControllerDecisionLogCapturesIssuedPulse()
+        {
+            string tempDir = CreateTempDirectory();
+
+            try
+            {
+                var diag = new DiagnosticService(tempDir);
+                var input = new RecordingInputEngine();
+                var settings = new BridgeSettings();
+                var controller = new FollowController(input, new NavigationKernel(), settings, diag);
+                SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
+
+                var leader = BuildState();
+                leader.CoordX = -5f;
+                leader.CoordZ = 0.25f;
+
+                controller.Update(1, BuildState(), leader, IntPtr.Zero, logDecisions: true);
+
+                string logPath = Path.Combine(tempDir, "debug", "controller_actions.csv");
+                string lastLine = File.ReadLines(logPath).Last();
+                bool ok = lastLine.Contains("StrafeLeft", StringComparison.Ordinal)
+                    && lastLine.Contains("issued_pulse", StringComparison.Ordinal)
+                    && lastLine.Contains("true", StringComparison.Ordinal);
+
+                Assert("Diag   [Controller decision log captures issued pulse]", ok, lastLine);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(tempDir);
+            }
+        }
+
+        private static void TestToolFailureLogCapturesFailureEntry()
+        {
+            string tempDir = CreateTempDirectory();
+
+            try
+            {
+                var diag = new DiagnosticService(tempDir);
+                diag.LogToolFailure(
+                    source: "RoundtripTests",
+                    operation: "SyntheticFailure",
+                    detail: "Intentional failure for diagnostics coverage.",
+                    context: "phase=test");
+
+                string logPath = Path.Combine(tempDir, "debug", "tool_failures.csv");
+                string lastLine = File.ReadLines(logPath).Last();
+                bool ok = lastLine.Contains("RoundtripTests", StringComparison.Ordinal)
+                    && lastLine.Contains("SyntheticFailure", StringComparison.Ordinal)
+                    && lastLine.Contains("Intentional failure", StringComparison.Ordinal);
+
+                Assert("Diag   [Tool failure log captures failure entry]", ok, lastLine);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(tempDir);
+            }
+        }
+
         private static void TestZoneChangeClearsHeadingHistory()
         {
             var nav = new NavigationKernel();
@@ -924,6 +986,23 @@ namespace LeaderDecoder
             }
 
             return heading;
+        }
+
+        private static string CreateTempDirectory()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "LeaderDiagTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            return path;
+        }
+
+        private static void DeleteDirectoryIfExists(string path)
+        {
+            if (!Directory.Exists(path))
+            {
+                return;
+            }
+
+            Directory.Delete(path, recursive: true);
         }
 
         private static GameState BuildState() => new GameState

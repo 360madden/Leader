@@ -13,8 +13,10 @@ namespace LeaderDecoder.Services
     /// </summary>
     public class GlobalHotkeyService : IDisposable
     {
-        [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-        [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        private readonly DiagnosticService? _diag;
+
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
         [DllImport("user32.dll")] private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -30,6 +32,11 @@ namespace LeaderDecoder.Services
         private bool     _running;
         public  Action?  OnToggleFollow;
 
+        public GlobalHotkeyService(DiagnosticService? diag = null)
+        {
+            _diag = diag;
+        }
+
         public void Start()
         {
             _running = true;
@@ -44,7 +51,24 @@ namespace LeaderDecoder.Services
             if (!ok)
             {
                 // Fallback to Pause key if ScrollLock is already claimed
-                RegisterHotKey(IntPtr.Zero, HK_ID_TOGGLE, MOD_NONE, VK_PAUSE);
+                _diag?.LogToolFailure(
+                    source: nameof(GlobalHotkeyService),
+                    operation: "RegisterHotKeyScrollLock",
+                    detail: "Failed to register ScrollLock hotkey; trying Pause as fallback.",
+                    context: $"win32={Marshal.GetLastWin32Error()}",
+                    dedupeKey: "hotkey-scrolllock",
+                    throttleSeconds: 60.0);
+
+                if (!RegisterHotKey(IntPtr.Zero, HK_ID_TOGGLE, MOD_NONE, VK_PAUSE))
+                {
+                    _diag?.LogToolFailure(
+                        source: nameof(GlobalHotkeyService),
+                        operation: "RegisterHotKeyPause",
+                        detail: "Failed to register Pause fallback hotkey.",
+                        context: $"win32={Marshal.GetLastWin32Error()}",
+                        dedupeKey: "hotkey-pause",
+                        throttleSeconds: 60.0);
+                }
             }
 
             while (_running)
@@ -57,7 +81,16 @@ namespace LeaderDecoder.Services
                 Thread.Sleep(10);
             }
 
-            UnregisterHotKey(IntPtr.Zero, HK_ID_TOGGLE);
+            if (!UnregisterHotKey(IntPtr.Zero, HK_ID_TOGGLE))
+            {
+                _diag?.LogToolFailure(
+                    source: nameof(GlobalHotkeyService),
+                    operation: "UnregisterHotKey",
+                    detail: "Failed to unregister the global toggle hotkey.",
+                    context: $"win32={Marshal.GetLastWin32Error()}",
+                    dedupeKey: "hotkey-unregister",
+                    throttleSeconds: 60.0);
+            }
         }
 
         public void Dispose()

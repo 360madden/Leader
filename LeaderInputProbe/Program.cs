@@ -42,112 +42,130 @@ internal static class Program
 
     private static int Main(string[] args)
     {
-        if (!TryParseOptions(args, out var options, out string? error))
+        var diag = new DiagnosticService();
+
+        try
         {
-            Console.Error.WriteLine(error);
-            Console.Error.WriteLine();
-            PrintUsage();
-            return 1;
-        }
-
-        if (options.ShowHelp)
-        {
-            PrintUsage();
-            return 0;
-        }
-
-        Console.Title = "Leader Input Probe";
-        Console.WriteLine("============================================================");
-        Console.WriteLine("Leader Input Probe");
-        Console.WriteLine("Sends deterministic background key probes to selected RIFT windows.");
-        Console.WriteLine("============================================================");
-
-        var allWindows = RiftWindowService.FindRiftWindows();
-        var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
-
-        Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
-        if (HasExplicitFilter(options))
-        {
-            Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
-        }
-
-        PrintWindowList(filteredWindows);
-
-        if (filteredWindows.Count == 0)
-        {
-            Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
-            return 1;
-        }
-
-        if (options.ListOnly && !options.HasProbeIntent)
-        {
-            return 0;
-        }
-
-        if (!options.HasProbeIntent)
-        {
-            Console.WriteLine();
-            Console.WriteLine("No probe action was supplied.");
-            PrintUsage();
-            return 1;
-        }
-
-        if (!TryResolveKey(options.KeyName!, out var key, out error))
-        {
-            Console.Error.WriteLine(error);
-            return 1;
-        }
-
-        var selected = SelectWindows(filteredWindows, options, out error);
-        if (!string.IsNullOrWhiteSpace(error))
-        {
-            Console.Error.WriteLine(error);
-            return 1;
-        }
-
-        int holdMs = options.Tap ? TapHoldMs : options.HoldMs;
-        var input = new InputEngine();
-        CaptureEngine? capture = options.Inspect ? new CaptureEngine() : null;
-
-        Console.WriteLine();
-        Console.WriteLine(BuildIntentSummary(options, key, selected.Count, holdMs));
-
-        for (int index = 0; index < selected.Count; index++)
-        {
-            var window = selected[index];
-            Console.WriteLine();
-            Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
-            Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
-
-            if (capture is not null)
+            if (!TryParseOptions(args, out var options, out string? error))
             {
-                PrintInspection("Before", capture, window.Hwnd);
+                Console.Error.WriteLine(error);
+                Console.Error.WriteLine();
+                PrintUsage();
+                return 1;
             }
 
-            for (int attempt = 0; attempt < options.Repeat; attempt++)
+            if (options.ShowHelp)
             {
-                Console.WriteLine(
-                    $"    Probe {attempt + 1}/{options.Repeat}: key={options.KeyName} duration={holdMs}ms");
-                ExecutePress(input, window.Hwnd, key, holdMs);
+                PrintUsage();
+                return 0;
+            }
 
-                if (attempt < options.Repeat - 1 && options.IntervalMs > 0)
+            Console.Title = "Leader Input Probe";
+            Console.WriteLine("============================================================");
+            Console.WriteLine("Leader Input Probe");
+            Console.WriteLine("Sends deterministic background key probes to selected RIFT windows.");
+            Console.WriteLine("============================================================");
+
+            var allWindows = RiftWindowService.FindRiftWindows();
+            var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
+
+            Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
+            if (HasExplicitFilter(options))
+            {
+                Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
+            }
+
+            PrintWindowList(filteredWindows);
+
+            if (filteredWindows.Count == 0)
+            {
+                Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
+                return 1;
+            }
+
+            if (options.ListOnly && !options.HasProbeIntent)
+            {
+                return 0;
+            }
+
+            if (!options.HasProbeIntent)
+            {
+                Console.WriteLine();
+                Console.WriteLine("No probe action was supplied.");
+                PrintUsage();
+                return 1;
+            }
+
+            if (!TryResolveKey(options.KeyName!, out var key, out error))
+            {
+                Console.Error.WriteLine(error);
+                return 1;
+            }
+
+            var selected = SelectWindows(filteredWindows, options, out error);
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                Console.Error.WriteLine(error);
+                return 1;
+            }
+
+            int holdMs = options.Tap ? TapHoldMs : options.HoldMs;
+            var input = new InputEngine(diag);
+            CaptureEngine? capture = options.Inspect ? new CaptureEngine(diag) : null;
+
+            Console.WriteLine();
+            Console.WriteLine(BuildIntentSummary(options, key, selected.Count, holdMs));
+
+            for (int index = 0; index < selected.Count; index++)
+            {
+                var window = selected[index];
+                Console.WriteLine();
+                Console.WriteLine($"[{index + 1}] {RiftWindowService.FormatIdentity(window)}");
+                Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
+
+                if (capture is not null)
                 {
-                    Thread.Sleep(options.IntervalMs);
+                    PrintInspection("Before", capture, window.Hwnd);
+                }
+
+                for (int attempt = 0; attempt < options.Repeat; attempt++)
+                {
+                    Console.WriteLine(
+                        $"    Probe {attempt + 1}/{options.Repeat}: key={options.KeyName} duration={holdMs}ms");
+                    ExecutePress(input, window.Hwnd, key, holdMs);
+
+                    if (attempt < options.Repeat - 1 && options.IntervalMs > 0)
+                    {
+                        Thread.Sleep(options.IntervalMs);
+                    }
+                }
+
+                if (capture is not null)
+                {
+                    if (options.WaitMs > 0)
+                    {
+                        Thread.Sleep(options.WaitMs);
+                    }
+
+                    PrintInspection("After", capture, window.Hwnd);
                 }
             }
 
-            if (capture is not null)
-            {
-                if (options.WaitMs > 0)
-                {
-                    Thread.Sleep(options.WaitMs);
-                }
-
-                PrintInspection("After", capture, window.Hwnd);
-            }
+            return 0;
         }
-
-        return 0;
+        catch (Exception ex)
+        {
+            diag.LogToolFailure(
+                source: "LeaderInputProbe",
+                operation: "UnhandledException",
+                detail: "Input probe crashed.",
+                context: string.Join(" ", args),
+                ex: ex,
+                dedupeKey: "input-probe-unhandled",
+                throttleSeconds: 1.0);
+            Console.Error.WriteLine($"Unhandled error: {ex.Message}");
+            return 1;
+        }
     }
 
     private static RiftWindowFilter? BuildFilter(Options options)

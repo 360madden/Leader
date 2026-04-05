@@ -24,6 +24,7 @@ namespace LeaderDecoder.Services
     {
         private readonly InputEngine _input;
         private readonly NavigationKernel _nav;
+        private readonly DiagnosticService? _diag;
         private BridgeSettings _settings;
 
         private readonly SlotState[] _slotStates = new SlotState[5];
@@ -98,11 +99,12 @@ namespace LeaderDecoder.Services
 
         private readonly record struct DriveCommand(DriveAxis Axis, int DurationMs, bool RefreshForwardBasis);
 
-        public FollowController(InputEngine input, NavigationKernel nav, BridgeSettings settings)
+        public FollowController(InputEngine input, NavigationKernel nav, BridgeSettings settings, DiagnosticService? diag = null)
         {
             _input = input;
             _nav = nav;
             _settings = settings;
+            _diag = diag;
 
             for (int i = 0; i < _slotStates.Length; i++)
             {
@@ -115,29 +117,74 @@ namespace LeaderDecoder.Services
 
         public void ApplySettings(BridgeSettings settings) => _settings = settings;
 
-        public void Update(int slot, GameState follower, GameState leader, IntPtr hwnd)
+        public void Update(int slot, GameState follower, GameState leader, IntPtr hwnd, bool logDecisions = false)
         {
             if (!follower.IsValid || !leader.IsValid || slot <= 0 || slot >= _slotStates.Length)
             {
                 return;
             }
 
+            SlotState state = _slotStates[slot];
+
             if (follower.ZoneHash != 0 && leader.ZoneHash != 0 && follower.ZoneHash != leader.ZoneHash)
             {
                 EmergencyStop(slot, hwnd);
-                return;
-            }
-
-            if (!follower.IsAlive)
-            {
-                EmergencyStop(slot, hwnd);
+                LogControllerAction(
+                    slot,
+                    leaderDistance: null,
+                    goal: null,
+                    goalDistance: null,
+                    selectedAxis: DriveAxis.None,
+                    pulseDurationMs: null,
+                    idleReason: "zone_mismatch",
+                    progress: ProgressState.Unknown,
+                    canPulse: null,
+                    withinLeaderBand: null,
+                    stopRadius: null,
+                    holdRadius: null,
+                    logDecisions: logDecisions);
                 return;
             }
 
             float leaderDistance = _nav.CalculateDistance(follower, leader);
+
+            if (!follower.IsAlive)
+            {
+                EmergencyStop(slot, hwnd);
+                LogControllerAction(
+                    slot,
+                    leaderDistance,
+                    goal: null,
+                    goalDistance: null,
+                    selectedAxis: DriveAxis.None,
+                    pulseDurationMs: null,
+                    idleReason: "follower_dead",
+                    progress: ProgressState.Unknown,
+                    canPulse: null,
+                    withinLeaderBand: null,
+                    stopRadius: null,
+                    holdRadius: null,
+                    logDecisions: logDecisions);
+                return;
+            }
+
             if (leaderDistance > _settings.FollowEngageDistanceMax)
             {
                 EmergencyStop(slot, hwnd);
+                LogControllerAction(
+                    slot,
+                    leaderDistance,
+                    goal: null,
+                    goalDistance: null,
+                    selectedAxis: DriveAxis.None,
+                    pulseDurationMs: null,
+                    idleReason: "leader_out_of_range",
+                    progress: ProgressState.Unknown,
+                    canPulse: null,
+                    withinLeaderBand: false,
+                    stopRadius: null,
+                    holdRadius: null,
+                    logDecisions: logDecisions);
                 return;
             }
 
@@ -153,11 +200,24 @@ namespace LeaderDecoder.Services
             float stopRadius = Math.Max(StopRadiusFloor, desiredTrailDistance * 0.35f);
             float holdRadius = Math.Max(stopRadius, HoldGoalRadius);
             bool withinLeaderBand = leaderDistance <= _settings.FollowDistanceMax;
-            SlotState state = _slotStates[slot];
 
             if (goalDistance <= stopRadius)
             {
                 ResetProgress(slot);
+                LogControllerAction(
+                    slot,
+                    leaderDistance,
+                    goal,
+                    goalDistance,
+                    DriveAxis.None,
+                    null,
+                    "inside_stop_radius",
+                    ProgressState.Unknown,
+                    canPulse: null,
+                    withinLeaderBand,
+                    stopRadius,
+                    holdRadius,
+                    logDecisions: logDecisions);
                 HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
                 return;
             }
@@ -167,12 +227,41 @@ namespace LeaderDecoder.Services
                 if (withinLeaderBand && goalDistance <= holdRadius)
                 {
                     ResetProgress(slot);
+                    LogControllerAction(
+                        slot,
+                        leaderDistance,
+                        goal,
+                        goalDistance,
+                        DriveAxis.None,
+                        null,
+                        "hold_without_basis",
+                        ProgressState.Unknown,
+                        canPulse: null,
+                        withinLeaderBand,
+                        stopRadius,
+                        holdRadius,
+                        logDecisions: logDecisions);
                     HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
                     return;
                 }
 
                 ResetProgress(slot);
-                TryStartForwardCalibration(slot, followerPosition, hwnd);
+                bool startedCalibration = TryStartForwardCalibration(slot, followerPosition, hwnd);
+                state = _slotStates[slot];
+                LogControllerAction(
+                    slot,
+                    leaderDistance,
+                    goal,
+                    goalDistance,
+                    startedCalibration ? DriveAxis.Forward : DriveAxis.None,
+                    startedCalibration ? ForwardCalibrationPulseMs : null,
+                    startedCalibration ? "start_basis_probe" : "basis_probe_cooldown",
+                    ProgressState.Unknown,
+                    canPulse: startedCalibration,
+                    withinLeaderBand,
+                    stopRadius,
+                    holdRadius,
+                    logDecisions: logDecisions);
                 HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
                 return;
             }
@@ -187,6 +276,23 @@ namespace LeaderDecoder.Services
             if (withinLeaderBand && goalDistance <= holdRadius && Math.Abs(eLateral) <= HoldLateralRadius)
             {
                 ResetProgress(slot);
+                LogControllerAction(
+                    slot,
+                    leaderDistance,
+                    goal,
+                    goalDistance,
+                    DriveAxis.None,
+                    null,
+                    "hold_band",
+                    ProgressState.Unknown,
+                    canPulse: null,
+                    withinLeaderBand,
+                    stopRadius,
+                    holdRadius,
+                    eForward,
+                    eLateral,
+                    theta,
+                    logDecisions);
                 HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
                 return;
             }
@@ -196,19 +302,65 @@ namespace LeaderDecoder.Services
             {
                 ResetForwardBasis(slot);
                 ResetProgress(slot);
-                TryStartForwardCalibration(slot, followerPosition, hwnd);
+                bool restartedCalibration = TryStartForwardCalibration(slot, followerPosition, hwnd);
+                state = _slotStates[slot];
+                LogControllerAction(
+                    slot,
+                    leaderDistance,
+                    goal,
+                    goalDistance,
+                    restartedCalibration ? DriveAxis.Forward : DriveAxis.None,
+                    restartedCalibration ? ForwardCalibrationPulseMs : null,
+                    restartedCalibration ? "recalibrate_basis" : "recalibrate_wait_cooldown",
+                    progress,
+                    canPulse: restartedCalibration,
+                    withinLeaderBand,
+                    stopRadius,
+                    holdRadius,
+                    eForward,
+                    eLateral,
+                    theta,
+                    logDecisions);
                 HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
                 return;
             }
 
-            if (CanIssueNavPulse(slot))
+            bool canPulse = CanIssueNavPulse(slot);
+            DriveCommand command = new(DriveAxis.None, 0, false);
+
+            if (canPulse)
             {
-                DriveCommand command = SelectDriveCommand(eForward, eLateral, theta);
+                command = SelectDriveCommand(eForward, eLateral, theta);
                 if (command.Axis != DriveAxis.None)
                 {
                     IssueDriveCommand(slot, followerPosition, hwnd, command);
                 }
             }
+
+            state = _slotStates[slot];
+            string idleReason = command.Axis != DriveAxis.None
+                ? "issued_pulse"
+                : canPulse
+                    ? "no_drive_command"
+                    : "nav_cooldown";
+
+            LogControllerAction(
+                slot,
+                leaderDistance,
+                goal,
+                goalDistance,
+                command.Axis,
+                command.Axis != DriveAxis.None ? command.DurationMs : null,
+                idleReason,
+                progress,
+                canPulse,
+                withinLeaderBand,
+                stopRadius,
+                holdRadius,
+                eForward,
+                eLateral,
+                theta,
+                logDecisions);
 
             HandleSupportActions(slot, follower, leader, leaderDistance, hwnd);
         }
@@ -274,17 +426,18 @@ namespace LeaderDecoder.Services
             state.HasForwardBasis = true;
         }
 
-        private void TryStartForwardCalibration(int slot, Vector2 followerPosition, IntPtr hwnd)
+        private bool TryStartForwardCalibration(int slot, Vector2 followerPosition, IntPtr hwnd)
         {
             if (!CanIssueNavPulse(slot))
             {
-                return;
+                return false;
             }
 
             _input.TapScanCode(hwnd, _settings.KeyForward, ForwardCalibrationPulseMs);
             _lastNavPulseAt[slot] = DateTime.Now;
 
             StartBasisObservation(slot, followerPosition, ForwardCalibrationPulseMs, DriveAxis.Forward);
+            return true;
         }
 
         private ProgressState UpdateProgress(int slot, float goalDistance)
@@ -515,6 +668,90 @@ namespace LeaderDecoder.Services
 
             normalized = Vector2.Normalize(vector);
             return true;
+        }
+
+        private void LogControllerAction(
+            int slot,
+            float? leaderDistance,
+            Vector2? goal,
+            float? goalDistance,
+            DriveAxis selectedAxis,
+            int? pulseDurationMs,
+            string idleReason,
+            ProgressState progress,
+            bool? canPulse,
+            bool? withinLeaderBand,
+            float? stopRadius,
+            float? holdRadius,
+            bool logDecisions)
+        {
+            LogControllerAction(
+                slot,
+                leaderDistance,
+                goal,
+                goalDistance,
+                selectedAxis,
+                pulseDurationMs,
+                idleReason,
+                progress,
+                canPulse,
+                withinLeaderBand,
+                stopRadius,
+                holdRadius,
+                null,
+                null,
+                null,
+                logDecisions);
+        }
+
+        private void LogControllerAction(
+            int slot,
+            float? leaderDistance,
+            Vector2? goal,
+            float? goalDistance,
+            DriveAxis selectedAxis,
+            int? pulseDurationMs,
+            string idleReason,
+            ProgressState progress,
+            bool? canPulse,
+            bool? withinLeaderBand,
+            float? stopRadius,
+            float? holdRadius,
+            float? eForward,
+            float? eLateral,
+            float? theta,
+            bool logDecisions)
+        {
+            if (!logDecisions || _diag is null || slot <= 0 || slot >= _slotStates.Length)
+            {
+                return;
+            }
+
+            SlotState state = _slotStates[slot];
+            _diag.LogControllerAction(new ControllerActionLogEntry
+            {
+                Slot = slot + 1,
+                LeaderDistance = leaderDistance,
+                GoalDistance = goalDistance,
+                GoalX = goal?.X,
+                GoalZ = goal?.Y,
+                SelectedAxis = selectedAxis.ToString(),
+                PulseDurationMs = pulseDurationMs,
+                HasBasis = state.HasForwardBasis,
+                PendingAxis = state.PendingForwardCalibration?.Axis.ToString() ?? string.Empty,
+                IdleReason = idleReason,
+                RoleMatched = true,
+                ProgressState = progress.ToString(),
+                ErrorForward = eForward,
+                ErrorLateral = eLateral,
+                Theta = theta,
+                CanPulse = canPulse,
+                WithinLeaderBand = withinLeaderBand,
+                StopRadius = stopRadius,
+                HoldRadius = holdRadius,
+                BasisForwardX = state.HasForwardBasis ? state.Forward.X : null,
+                BasisForwardZ = state.HasForwardBasis ? state.Forward.Y : null,
+            });
         }
     }
 }
