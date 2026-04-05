@@ -239,7 +239,7 @@ Capability status keeps:
 
 - slash registration state and active primary slash command
 - runtime / transition / export / render-health module readiness
-- session timeline / session stats / packet audit readiness
+- session timeline / session stats / packet audit / cadence readiness
 - mini status-badge readiness
 - renderer / diag / dump subsystem readiness
 - bounded capability-change history
@@ -320,6 +320,25 @@ Packet audit checks:
 - protocol-range safety for heading
 - player-tag format validity
 - normalized encoder output across all telemetry pixels
+
+### Addon-Side Update Cadence
+
+The addon now tracks its own timing loop in `LeaderConfig.updateCadence`, which helps separate packet problems from simple update-rate throttling or hitching.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader cadence` | Print the current update-cadence summary |
+
+Cadence tracking keeps:
+
+- total frame callbacks seen
+- emitted telemetry tick count
+- throttled frame count
+- long-frame count
+- average, max, and last frame delta
+- last telemetry emit time
 
 ### Window Resize Helper
 

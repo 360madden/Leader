@@ -60,6 +60,9 @@ local function EnsureConfig()
     if type(export.packetAudit) ~= "table" then
         export.packetAudit = {}
     end
+    if type(export.updateCadence) ~= "table" then
+        export.updateCadence = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -125,6 +128,7 @@ local function UpdateFromCapabilities(export)
         sessionTimelineReady = status.sessionTimelineReady,
         sessionStatsReady = status.sessionStatsReady,
         packetAuditReady = status.packetAuditReady,
+        updateCadenceReady = status.updateCadenceReady,
         rendererReady = status.rendererReady,
         statusBadgeReady = status.statusBadgeReady,
         diagReady = status.diagReady,
@@ -192,6 +196,26 @@ local function UpdateFromPacketAudit(export)
     }
 end
 
+local function UpdateFromCadence(export)
+    if not (Private.UpdateCadence and Private.UpdateCadence.GetStatus) then
+        return
+    end
+
+    local status = Private.UpdateCadence.GetStatus()
+    export.updateCadence = {
+        sessionStartedAt = status.sessionStartedAt,
+        lastUpdatedAt = status.lastUpdatedAt,
+        lastTelemetryAt = status.lastTelemetryAt,
+        frameCount = status.frameCount,
+        telemetryTickCount = status.telemetryTickCount,
+        throttledFrameCount = status.throttledFrameCount,
+        longFrameCount = status.longFrameCount,
+        maxDeltaSeconds = status.maxDeltaSeconds,
+        averageDeltaSeconds = status.averageDeltaSeconds,
+        lastDeltaSeconds = status.lastDeltaSeconds,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -238,6 +262,7 @@ function DebugExport.Sync(packet)
     UpdateFromTimeline(export)
     UpdateFromSessionStats(export)
     UpdateFromPacketAudit(export)
+    UpdateFromCadence(export)
     UpdateFromDump(export)
 end
 
@@ -252,6 +277,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromTimeline(export)
     UpdateFromSessionStats(export)
     UpdateFromPacketAudit(export)
+    UpdateFromCadence(export)
     UpdateFromDump(export)
 end
 

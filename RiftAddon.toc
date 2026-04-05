@@ -22,6 +22,7 @@ RunOnStartup = {
   "Modules/SessionTimeline.lua",
   "Modules/SessionStats.lua",
   "Modules/PacketAudit.lua",
+  "Modules/UpdateCadence.lua",
   "Modules/StatusBadge.lua",
   "Modules/DiagnosticUI.lua",
   "main.lua"

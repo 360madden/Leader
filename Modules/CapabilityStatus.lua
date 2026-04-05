@@ -13,6 +13,7 @@ local moduleFieldMap = {
     sessiontimeline = "sessionTimelineReady",
     sessionstats = "sessionStatsReady",
     packetaudit = "packetAuditReady",
+    updatecadence = "updateCadenceReady",
     renderer = "rendererReady",
     statusbadge = "statusBadgeReady",
     diag = "diagReady",
@@ -85,6 +86,9 @@ local function EnsureConfig()
     end
     if capabilities.packetAuditReady == nil then
         capabilities.packetAuditReady = false
+    end
+    if capabilities.updateCadenceReady == nil then
+        capabilities.updateCadenceReady = false
     end
     if capabilities.rendererReady == nil then
         capabilities.rendererReady = false
@@ -179,6 +183,7 @@ function CapabilityStatus.GetStatus()
         sessionTimelineReady = capabilities.sessionTimelineReady and true or false,
         sessionStatsReady = capabilities.sessionStatsReady and true or false,
         packetAuditReady = capabilities.packetAuditReady and true or false,
+        updateCadenceReady = capabilities.updateCadenceReady and true or false,
         rendererReady = capabilities.rendererReady and true or false,
         statusBadgeReady = capabilities.statusBadgeReady and true or false,
         diagReady = capabilities.diagReady and true or false,
@@ -191,7 +196,7 @@ function CapabilityStatus.PrintStatus()
     local status = CapabilityStatus.GetStatus()
     local slashDisplay = status.primarySlashCommand ~= "" and ("/" .. status.primarySlashCommand) or "(none)"
     print(string.format(
-        "🛰️ Leader Capabilities: runtime=%s | transition=%s | export=%s | render=%s | timeline=%s | stats=%s | packet=%s | renderer=%s | badge=%s | diag=%s | dump=%s | slash=%s | history=%d",
+        "🛰️ Leader Capabilities: runtime=%s | transition=%s | export=%s | render=%s | timeline=%s | stats=%s | packet=%s | cadence=%s | renderer=%s | badge=%s | diag=%s | dump=%s | slash=%s | history=%d",
         status.runtimeReady and "OK" or "no",
         status.transitionReady and "OK" or "no",
         status.debugExportReady and "OK" or "no",
@@ -199,6 +204,7 @@ function CapabilityStatus.PrintStatus()
         status.sessionTimelineReady and "OK" or "no",
         status.sessionStatsReady and "OK" or "no",
         status.packetAuditReady and "OK" or "no",
+        status.updateCadenceReady and "OK" or "no",
         status.rendererReady and "OK" or "no",
         status.statusBadgeReady and "OK" or "no",
         status.diagReady and "OK" or "no",

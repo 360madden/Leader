@@ -52,6 +52,7 @@ local function PrintHelp()
     print("  " .. prefix .. " timeline         — Show session timeline status")
     print("  " .. prefix .. " stats            — Show session statistics")
     print("  " .. prefix .. " packetaudit      — Show packet/encoder audit status")
+    print("  " .. prefix .. " cadence          — Show update cadence timing")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -226,6 +227,10 @@ local function HandleSlashCommand(_, params)
         if Private.PacketAudit and Private.PacketAudit.PrintStatus then
             Private.PacketAudit.PrintStatus()
         end
+    elseif command == "cadence" then
+        if Private.UpdateCadence and Private.UpdateCadence.PrintStatus then
+            Private.UpdateCadence.PrintStatus()
+        end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "dump" then
@@ -288,8 +293,16 @@ local function UpdateTelemetry()
     state.lastFrameTime = now
 
     state.lastUpdate = state.lastUpdate + delta
-    if state.lastUpdate < state.updateInterval then return end
+    if state.lastUpdate < state.updateInterval then
+        if Private.UpdateCadence and Private.UpdateCadence.RecordFrame then
+            Private.UpdateCadence.RecordFrame(delta, false)
+        end
+        return
+    end
     state.lastUpdate = 0
+    if Private.UpdateCadence and Private.UpdateCadence.RecordFrame then
+        Private.UpdateCadence.RecordFrame(delta, true)
+    end
 
     if Private.Renderer and Private.Renderer.BeginFrame then
         Private.Renderer.BeginFrame()
@@ -420,6 +433,9 @@ local function Init()
     if Private.PacketAudit and Private.PacketAudit.Init then
         Private.PacketAudit.Init()
     end
+    if Private.UpdateCadence and Private.UpdateCadence.Init then
+        Private.UpdateCadence.Init()
+    end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()
     end
@@ -434,6 +450,9 @@ local function Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
         Private.CapabilityStatus.MarkModuleReady("packetAudit", Private.PacketAudit and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("updateCadence", Private.UpdateCadence and true or false)
     end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()
