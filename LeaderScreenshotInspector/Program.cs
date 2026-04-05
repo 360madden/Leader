@@ -23,7 +23,7 @@ namespace LeaderScreenshotInspector
             Console.Title = "Leader Screenshot Inspector";
             Console.WriteLine("============================================================");
             Console.WriteLine("Leader Screenshot Inspector (non-invasive)");
-            Console.WriteLine("Inspects the top-left 28x4 strip inside a saved screenshot.");
+            Console.WriteLine($"Inspects the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} strip inside a saved screenshot.");
             Console.WriteLine("============================================================");
             Console.WriteLine($"Image: {imagePath}");
 

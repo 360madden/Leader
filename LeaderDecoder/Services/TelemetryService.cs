@@ -9,7 +9,8 @@ namespace LeaderDecoder.Services
     /// <summary>
     /// LEADER TELEMETRY DECODER v1.1
     /// Uses LockBits for a direct memory scan — ~10x faster than GetPixel.
-    /// Pixel sampling reads from the centre of each 4×4 block (offset 2,2).
+    /// Pixel sampling reads from the centre of each 8×8 block (offset 4,4) in the current strip.
+    /// Legacy 4×4 captures remain supported by a fallback profile for older screenshots/logs.
     /// </summary>
     public class TelemetryService
     {
@@ -19,6 +20,7 @@ namespace LeaderDecoder.Services
 
         private static readonly SampleProfile[] Profiles =
         {
+            new SampleProfile("native-8x8", new[] { 4, 12, 20, 28, 36, 44, 52 }, 4),
             new SampleProfile("native-4x4", new[] { 2, 6, 10, 14, 18, 22, 26 }, 2),
             new SampleProfile("compact-2x2", new[] { 1, 3, 5, 7, 9, 11, 13 }, 1),
             new SampleProfile("compact-1x1", new[] { 0, 1, 2, 4, 5, 6, 7 }, 0),

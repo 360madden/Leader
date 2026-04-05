@@ -23,12 +23,13 @@ namespace LeaderDecoder.Services
         public required IReadOnlyList<StripSample> Samples { get; init; }
         public int Width { get; init; }
         public int Height { get; init; }
-        public string ProfileName { get; init; } = "native-4x4";
+        public string ProfileName { get; init; } = "native-8x8";
     }
 
     /// <summary>
-    /// Utility helpers for non-invasive inspection of the 28x4 telemetry strip.
+    /// Utility helpers for non-invasive inspection of the current 56x8 telemetry strip.
     /// Produces both decoded state and raw sampled RGB values for each strip block.
+    /// Legacy 28x4 captures remain supported by fallback profiles.
     /// </summary>
     public static class StripInspector
     {
@@ -41,16 +42,17 @@ namespace LeaderDecoder.Services
 
         private static readonly SampleProfile[] Profiles =
         {
+            new SampleProfile { Name = "native-8x8", SampleXs = new[] { 4, 12, 20, 28, 36, 44, 52 }, SampleY = 4 },
             new SampleProfile { Name = "native-4x4", SampleXs = new[] { 2, 6, 10, 14, 18, 22, 26 }, SampleY = 2 },
             new SampleProfile { Name = "compact-2x2", SampleXs = new[] { 1, 3, 5, 7, 9, 11, 13 }, SampleY = 1 },
             new SampleProfile { Name = "compact-1x1", SampleXs = new[] { 0, 1, 2, 4, 5, 6, 7 }, SampleY = 0 },
         };
 
         public const int BlockCount = 7;
-        public const int BlockWidth = 4;
-        public const int StripWidth = 28;
-        public const int StripHeight = 4;
-        public const int SampleOffset = 2;
+        public const int BlockWidth = 8;
+        public const int StripWidth = BlockCount * BlockWidth;
+        public const int StripHeight = BlockWidth;
+        public const int SampleOffset = BlockWidth / 2;
 
         public static StripAnalysis Analyze(Bitmap source)
         {

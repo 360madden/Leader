@@ -9,6 +9,10 @@ This document tracks what we know about the **Leader** addon using only non-inva
 
 No input injection, memory edits, or client modification are part of this workflow.
 
+Current live strip geometry:
+- `56x8` client-area capture using 8×8 logical blocks
+- older `28x4` notes below are historical, from before the strip was expanded
+
 ---
 
 ## Helper Apps
@@ -22,7 +26,7 @@ Launcher:
 
 Purpose:
 - enumerates visible RIFT windows
-- captures only the top-left `28x4` client-area strip
+- captures only the top-left `56x8` client-area strip
 - reports sync validity, raw RGB samples, and decoded telemetry fields
 - also reports saved `rift.cfg` resolution/window mode and live client geometry so capture mismatches are easier to explain
 
@@ -35,7 +39,7 @@ Launcher:
 
 Purpose:
 - inspects the latest screenshot, or a chosen screenshot path
-- samples the top-left `28x4` region
+- samples the top-left `56x8` region
 - reports whether the Leader sync strip is visible in the saved image
 
 ---

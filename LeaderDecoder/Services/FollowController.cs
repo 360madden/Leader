@@ -122,8 +122,6 @@ namespace LeaderDecoder.Services
                 return;
             }
 
-            ObserveForwardCalibration(slot, follower);
-
             if (follower.ZoneHash != 0 && leader.ZoneHash != 0 && follower.ZoneHash != leader.ZoneHash)
             {
                 EmergencyStop(slot, hwnd);
@@ -142,6 +140,8 @@ namespace LeaderDecoder.Services
                 EmergencyStop(slot, hwnd);
                 return;
             }
+
+            ObserveForwardCalibration(slot, follower);
 
             float desiredTrailDistance = ResolveTrailDistance();
             (float goalX, float goalZ) = _nav.ResolveFollowTarget(0, slot, leader, follower, desiredTrailDistance, PredictionSeconds);

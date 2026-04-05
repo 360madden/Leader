@@ -6,7 +6,7 @@ This document details the optimizations and how to profile the `LeaderDecoder`.
 
 ## CPU & Capture Profiling
 
-The costliest function in the pipeline is `BitBlt` via the native `CaptureEngine.cs`. Capturing full windows is too slow, which is why we only sample a 28x4 area exactly at `(0,0)`.
+The costliest function in the pipeline is `BitBlt` via the native `CaptureEngine.cs`. Capturing full windows is too slow, which is why we only sample a 56x8 area exactly at `(0,0)`.
 
 ### Profiling Tools Included
 The Bridge console automatically profiles every frame using a high-precision `Stopwatch` tied to `cycleSw.ElapsedMilliseconds`.

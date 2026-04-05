@@ -16,7 +16,7 @@ local layoutState = {
     pixelSize = 0,
 }
 local config = {
-    pixelSize = 4,
+    pixelSize = 8,
     anchorX = 0,
     anchorY = 0,
     referenceWidth = 2560,
@@ -102,7 +102,7 @@ local function ApplyLayout(force)
 end
 
 --- Initializes the telemetry strip UI.
--- Creates a single 28x4 background frame with 7 high-opacity child textures.
+-- Creates a single 56x8 background frame with 7 high-opacity child textures.
 function Renderer.Init()
     if strip then
         Renderer.SyncLayout(true)

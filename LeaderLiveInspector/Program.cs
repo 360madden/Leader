@@ -30,7 +30,7 @@ namespace LeaderLiveInspector
             Console.Title = "Leader Live Inspector";
             Console.WriteLine("============================================================");
             Console.WriteLine("Leader Live Inspector (non-invasive)");
-            Console.WriteLine("Captures only the top-left 28x4 client-area strip.");
+            Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
             Console.WriteLine("============================================================");
 
             var capture = new CaptureEngine();
@@ -42,7 +42,7 @@ namespace LeaderLiveInspector
                     Console.Clear();
                     Console.WriteLine("============================================================");
                     Console.WriteLine("Leader Live Inspector (non-invasive)");
-                    Console.WriteLine("Captures only the top-left 28x4 client-area strip.");
+                    Console.WriteLine($"Captures only the top-left {StripInspector.StripWidth}x{StripInspector.StripHeight} client-area strip.");
                     Console.WriteLine("============================================================");
                 }
 

@@ -14,8 +14,8 @@ namespace LeaderDecoder.Models
         public Dictionary<string, int[]> MemoryOffsets { get; set; } = new Dictionary<string, int[]>();
 
         // 🧬 Optics & Sampling
-        public int CaptureWidth { get; set; } = 28;
-        public int CaptureHeight { get; set; } = 4;
+        public int CaptureWidth { get; set; } = 56;
+        public int CaptureHeight { get; set; } = 8;
         public int TargetFPS { get; set; } = 30;
 
         // 🧭 Pursuit Parameters

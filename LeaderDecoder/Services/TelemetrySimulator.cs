@@ -6,7 +6,7 @@ namespace LeaderDecoder.Services
 {
     /// <summary>
     /// LEADER TELEMETRY SIMULATOR
-    /// Generates synthetic bit-accurate 7-pixel strips for offline testing.
+    /// Generates synthetic bit-accurate 7-pixel strips using the current 8x8 block geometry for offline testing.
     /// Matches the encoding logic of Encoder.lua v1.1.
     /// </summary>
     public class TelemetrySimulator
@@ -15,7 +15,7 @@ namespace LeaderDecoder.Services
 
         public Bitmap Generate(GameState state)
         {
-            var bmp = new Bitmap(28, 4);
+            var bmp = new Bitmap(56, 8);
             using (var g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Black);
@@ -48,11 +48,11 @@ namespace LeaderDecoder.Services
 
         private void SetSimPixel(Bitmap bmp, int index, Color color)
         {
-            int startX = index * 4;
-            // Fill a 4x4 block to simulate the RIFT renderer
-            for (int x = startX; x < startX + 4; x++)
+            int startX = index * 8;
+            // Fill an 8x8 block to simulate the current RIFT renderer
+            for (int x = startX; x < startX + 8; x++)
             {
-                for (int y = 0; y < 4; y++)
+                for (int y = 0; y < 8; y++)
                 {
                     bmp.SetPixel(x, y, color);
                 }

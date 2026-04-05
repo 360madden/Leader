@@ -76,8 +76,8 @@ Auto-generated on first run next to `LeaderDecoder.exe`:
 
 ```json
 {
-  "CaptureWidth": 28,
-  "CaptureHeight": 4,
+  "CaptureWidth": 56,
+  "CaptureHeight": 8,
   "TargetFPS": 30,
   "FollowDistanceMin": 1.5,
   "FollowDistanceMax": 3.5,
@@ -133,7 +133,7 @@ Use these helper launchers when you want to validate the strip without changing 
 
 | Helper | Purpose |
 |--------|---------|
-| `run_live_inspector.bat` | Captures the live top-left `28x4` region from visible RIFT windows and reports sync/decode status plus saved/live window geometry context; supports targeting by `--pid`, `--hwnd`, and `--title-contains` |
+| `run_live_inspector.bat` | Captures the live top-left `56x8` region from visible RIFT windows and reports sync/decode status plus saved/live window geometry context; supports targeting by `--pid`, `--hwnd`, and `--title-contains` |
 | `run_input_probe.bat` | Sends deterministic background key probes to explicit RIFT clients by `--pid`, `--pids`, `--hwnd`, or `--hwnds`, with optional strip inspection before and after the probe |
 | `run_screenshot_inspector.bat` | Inspects the latest RIFT screenshot, or a chosen image path, for the Leader strip |
 
@@ -163,7 +163,7 @@ Current field notes live in:
 |--------|------|
 | `Gatherer.lua` | Polls RIFT Inspect API; returns typed telemetry packet |
 | `Encoder.lua` | Packs float values into 24-bit RGB components |
-| `Renderer.lua` | Writes 7 opaque 4×4 colour blocks at (0,0) |
+| `Renderer.lua` | Writes 7 opaque 8×8 colour blocks at (0,0) |
 | `DiagnosticUI.lua` | In-game readable overlay for live data validation |
 | `main.lua` | 30Hz orchestration loop, slash commands |
 

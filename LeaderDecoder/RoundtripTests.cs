@@ -63,6 +63,7 @@ namespace LeaderDecoder
             TestForwardCalibrationLearnsBasisAndDerivesLeftAxis();
             TestStrafeObservationRefinesForwardBasis();
             TestBackwardObservationRefinesForwardBasis();
+            TestLatestCommandAxisWinsPendingObservation();
             TestFollowBackpedalsWhenGoalIsBehind();
             TestFollowDoesNotEngageBeyondMaxDistance();
             TestFollowUsesBreadcrumbTrailInsteadOfBodyChase();
@@ -380,6 +381,44 @@ namespace LeaderDecoder
 
             Assert("Follow [Backward observation refines forward basis]", ok,
                 $"taps=[{string.Join(",", input.TappedScanCodes)}] forward=({debug.Forward.X:F2},{debug.Forward.Y:F2})");
+        }
+
+        private static void TestLatestCommandAxisWinsPendingObservation()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
+
+            var leaderLeft = BuildState();
+            leaderLeft.CoordX = -5f;
+
+            var followerStart = BuildState();
+            controller.Update(1, followerStart, leaderLeft, IntPtr.Zero);
+
+            Thread.Sleep(150);
+
+            var leaderBehind = BuildState();
+            leaderBehind.CoordZ = -5f;
+            controller.Update(1, followerStart, leaderBehind, IntPtr.Zero);
+
+            var afterOverwrite = ReadSlotDebug(controller, 1);
+
+            var followerAfterMove = BuildState();
+            followerAfterMove.CoordX = 0.8f;
+            followerAfterMove.IsMoving = true;
+            controller.Update(1, followerAfterMove, leaderBehind, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = input.TappedScanCodes.Count >= 2
+                && input.TappedScanCodes[0] == settings.KeyLeft
+                && input.TappedScanCodes[1] == settings.KeyBack
+                && afterOverwrite.PendingAxis == "Backward"
+                && debug.Forward.X < -0.30f
+                && debug.Forward.Y > 0.75f;
+
+            Assert("Follow [Latest command axis wins pending observation]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] pending={afterOverwrite.PendingAxis ?? "null"} forward=({debug.Forward.X:F2},{debug.Forward.Y:F2})");
         }
 
         private static void TestFollowDoesNotEngageBeyondMaxDistance()
@@ -845,11 +884,14 @@ namespace LeaderDecoder
         {
             object slotState = GetSlotState(controller, slot);
             Type slotStateType = slotState.GetType();
+            object? pendingCalibration = slotStateType.GetField("PendingForwardCalibration", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState);
             return new SlotDebug
             {
                 Forward = (Vector2)slotStateType.GetField("Forward", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
                 HasForwardBasis = (bool)slotStateType.GetField("HasForwardBasis", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
-                HasPendingCalibration = slotStateType.GetField("PendingForwardCalibration", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState) is not null,
+                HasPendingCalibration = pendingCalibration is not null,
+                PendingAxis = pendingCalibration?.GetType().GetProperty("Axis", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(pendingCalibration)?.ToString()
+                    ?? pendingCalibration?.GetType().GetField("Axis", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(pendingCalibration)?.ToString(),
                 LastGoalDistance = (float)slotStateType.GetField("LastGoalDistance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
                 WorseningTicks = (int)slotStateType.GetField("ConsecutiveWorseningTicks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
                 StallTicks = (int)slotStateType.GetField("ConsecutiveStallTicks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
@@ -927,6 +969,7 @@ namespace LeaderDecoder
             public Vector2 Forward { get; init; }
             public bool HasForwardBasis { get; init; }
             public bool HasPendingCalibration { get; init; }
+            public string? PendingAxis { get; init; }
             public float LastGoalDistance { get; init; }
             public int WorseningTicks { get; init; }
             public int StallTicks { get; init; }

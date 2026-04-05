@@ -1,7 +1,7 @@
 ## Leader Telemetry Protocol v1.1
 
 ### Strip Geometry
-- **Width**: 28 px  |  **Height**: 4 px  |  **Pixel block size**: 4×4 px  
+- **Width**: 56 px  |  **Height**: 8 px  |  **Pixel block size**: 8×8 px  
 - **Capture origin**: (0, 0) of the game window client area  
 - **Sync**: Pixel 0 must decode as R≥250, G≤5, B≥250 for the frame to be accepted  
 
@@ -9,17 +9,17 @@
 
 | Pixel | Client X | Channel | Value | Formula |
 |-------|----------|---------|-------|---------|
-| 0 | 0–3 | RGB | 255, 0, 255 | Static magenta sync beacon |
-| 1 | 4–7 | R | playerHP | `floor(health/healthMax × 255)` |
-| 1 | 4–7 | G | targetHP | `floor(health/healthMax × 255)` |
-| 1 | 4–7 | B | flags | Bitfield (see below) |
-| 2 | 8–11 | RGB | CoordX | 24-bit packed: `floor(x×10)+8388608` |
-| 3 | 12–15 | RGB | CoordY | 24-bit packed: `floor(y×10)+8388608` |
-| 4 | 16–19 | RGB | CoordZ | 24-bit packed: `floor(z×10)+8388608` |
-| 5 | 20–23 | R | facing low byte | `n = floor(radians×10000)` |
-| 5 | 20–23 | G | facing high byte | `n >> 8` |
-| 5 | 20–23 | B | zone hash | Sum of zone string bytes mod 256 |
-| 6 | 24–27 | RGB | target hash | Last 6 hex chars of unit ID |
+| 0 | 0–7 | RGB | 255, 0, 255 | Static magenta sync beacon |
+| 1 | 8–15 | R | playerHP | `floor(health/healthMax × 255)` |
+| 1 | 8–15 | G | targetHP | `floor(health/healthMax × 255)` |
+| 1 | 8–15 | B | flags | Bitfield (see below) |
+| 2 | 16–23 | RGB | CoordX | 24-bit packed: `floor(x×10)+8388608` |
+| 3 | 24–31 | RGB | CoordY | 24-bit packed: `floor(y×10)+8388608` |
+| 4 | 32–39 | RGB | CoordZ | 24-bit packed: `floor(z×10)+8388608` |
+| 5 | 40–47 | R | facing low byte | `n = floor(radians×10000)` |
+| 5 | 40–47 | G | facing high byte | `n >> 8` |
+| 5 | 40–47 | B | zone hash | Sum of zone string bytes mod 256 |
+| 6 | 48–55 | RGB | target hash | Last 6 hex chars of unit ID |
 
 ### Flags Bitfield (Pixel 1, B Channel)
 | Bit | Mask | Meaning |
