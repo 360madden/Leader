@@ -38,6 +38,13 @@ namespace LeaderDecoder.Services
         public int? ClientHeight { get; init; }
     }
 
+    public sealed class RiftWindowSlot
+    {
+        public RiftWindowInfo? Window { get; init; }
+        public int? ExpectedProcessId { get; init; }
+        public IntPtr? ExpectedHwnd { get; init; }
+    }
+
     public static class RiftWindowService
     {
         public static List<RiftWindowInfo> FindRiftWindows()
@@ -105,6 +112,45 @@ namespace LeaderDecoder.Services
             }
 
             return filtered;
+        }
+
+        public static List<RiftWindowSlot> BuildWindowSlots(IEnumerable<RiftWindowInfo> windows, RiftWindowFilter? filter, int maxSlots = 5)
+        {
+            if (maxSlots <= 0)
+            {
+                return new List<RiftWindowSlot>();
+            }
+
+            var available = FilterWindows(windows, filter);
+
+            if (filter?.ProcessIds is { Length: > 0 })
+            {
+                return filter.ProcessIds
+                    .Take(maxSlots)
+                    .Select(processId => new RiftWindowSlot
+                    {
+                        ExpectedProcessId = processId,
+                        Window = available.FirstOrDefault(window => window.ProcessId == processId)
+                    })
+                    .ToList();
+            }
+
+            if (filter?.Hwnds is { Length: > 0 })
+            {
+                return filter.Hwnds
+                    .Take(maxSlots)
+                    .Select(hwnd => new RiftWindowSlot
+                    {
+                        ExpectedHwnd = hwnd,
+                        Window = available.FirstOrDefault(window => window.Hwnd == hwnd)
+                    })
+                    .ToList();
+            }
+
+            return available
+                .Take(maxSlots)
+                .Select(window => new RiftWindowSlot { Window = window })
+                .ToList();
         }
 
         public static bool MatchesFilter(RiftWindowInfo window, RiftWindowFilter filter)
@@ -177,6 +223,26 @@ namespace LeaderDecoder.Services
         public static string FormatSelectorHints(RiftWindowInfo window)
         {
             return $"--pid {window.ProcessId} | --hwnd {FormatHwnd(window.Hwnd)}";
+        }
+
+        public static string FormatExpectedIdentity(RiftWindowSlot? slot)
+        {
+            if (slot?.Window is not null)
+            {
+                return FormatCompactIdentity(slot.Window);
+            }
+
+            if (slot?.ExpectedProcessId is int expectedProcessId)
+            {
+                return $"MISSING pid {expectedProcessId}";
+            }
+
+            if (slot?.ExpectedHwnd is IntPtr expectedHwnd && expectedHwnd != IntPtr.Zero)
+            {
+                return $"MISSING {FormatHwnd(expectedHwnd)}";
+            }
+
+            return "UNASSIGNED";
         }
 
         public static bool TryParseHwnd(string? value, out IntPtr hwnd)

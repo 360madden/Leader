@@ -11,6 +11,8 @@ namespace LeaderDecoder.Services
     /// </summary>
     public class TelemetrySimulator
     {
+        private const float TwoPi = (float)(Math.PI * 2);
+
         public Bitmap Generate(GameState state)
         {
             var bmp = new Bitmap(28, 4);
@@ -77,9 +79,25 @@ namespace LeaderDecoder.Services
         private Color EncodeFacing(GameState state)
         {
             // Must match Encoder.lua v1.1: floor(radian * 10000), R=low, G=high, B=zoneHash
-            int packed = (int)Math.Floor(state.RawFacing * 10000.0);
+            float facing = NormalizeProtocolHeading(state.RawFacing);
+            int packed = (int)Math.Floor(facing * 10000.0);
             packed = Math.Max(0, Math.Min(65535, packed));
             return Color.FromArgb(packed & 0xFF, (packed >> 8) & 0xFF, state.ZoneHash);
+        }
+
+        private static float NormalizeProtocolHeading(float heading)
+        {
+            while (heading < 0)
+            {
+                heading += TwoPi;
+            }
+
+            while (heading > TwoPi)
+            {
+                heading -= TwoPi;
+            }
+
+            return heading;
         }
     }
 }

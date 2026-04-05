@@ -32,8 +32,11 @@ namespace LeaderDecoder
             if (options.TestMode)
             {
                 RoundtripTests.Run();
-                Console.WriteLine("\nPress any key to exit...");
-                Console.ReadKey(true);
+                if (!Console.IsInputRedirected && !Console.IsOutputRedirected)
+                {
+                    Console.WriteLine("\nPress any key to exit...");
+                    Console.ReadKey(true);
+                }
                 return;
             }
 
@@ -45,6 +48,7 @@ namespace LeaderDecoder
 
             Console.Clear();
             Console.Title = "🛰️ Leader: Multi-Agent Bridge v1.2";
+            var filter = BuildFilter(options);
 
             // 🧱 Bootstrapping (Hardening Agent)
             var config = new ConfigManager();
@@ -90,10 +94,13 @@ namespace LeaderDecoder
             while (true)
             {
                 var cycleSw = Stopwatch.StartNew();
-                var windows = RiftWindowService.FilterWindows(RiftWindowService.FindRiftWindows(), BuildFilter(options));
+                var allWindows = RiftWindowService.FindRiftWindows();
+                var slots = RiftWindowService.BuildWindowSlots(allWindows, filter);
+                int detectedCount = slots.Count(slot => slot.Window is not null);
+                int displayTargetCount = GetDisplayTargetCount(options);
 
                 // 0. Standby Logic
-                if (windows.Count == 0 && !isSimMode)
+                if (detectedCount == 0 && !isSimMode)
                 {
                     Console.SetCursorPosition(0, 5);
                     Console.ForegroundColor = ConsoleColor.Yellow;
@@ -119,9 +126,10 @@ namespace LeaderDecoder
                     }
                     if (key == ConsoleKey.S)
                     {
-                        if (!isSimMode && windows.Count > 0)
+                        var primaryWindow = slots.FirstOrDefault(slot => slot.Window is not null)?.Window;
+                        if (!isSimMode && primaryWindow is not null)
                         {
-                            using (var bmp = capture.CaptureRegion(windows[0].Hwnd, settings.CaptureWidth, settings.CaptureHeight))
+                            using (var bmp = capture.CaptureRegion(primaryWindow.Hwnd, settings.CaptureWidth, settings.CaptureHeight))
                                 diag.SaveSnapshot(bmp, "manual_snap");
                             Console.Beep(1200, 50);
                         }
@@ -139,7 +147,7 @@ namespace LeaderDecoder
                 // UI Cleanup (Dashboard Mode)
                 Console.SetCursorPosition(0, 5);
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"[BRIDGE_STATUS] Detected: {windows.Count}/5 | Latency: {cycleSw.ElapsedMilliseconds,2}ms | ");
+                Console.Write($"[BRIDGE_STATUS] Detected: {detectedCount}/{displayTargetCount} | Latency: {cycleSw.ElapsedMilliseconds,2}ms | ");
 
                 Console.ForegroundColor = isFollowEnabled ? ConsoleColor.Green : ConsoleColor.Yellow;
                 Console.Write($"PURSUIT: {(isFollowEnabled ? "ACTIVE " : "DISABLED")} ");
@@ -161,9 +169,9 @@ namespace LeaderDecoder
                         mockLeader.CoordZ += (float)Math.Sin(DateTime.Now.Ticks / 10000000.0) * 0.5f;
                         state = mockLeader;
                     }
-                    else if (i < windows.Count)
+                    else if (i < slots.Count && slots[i].Window is not null)
                     {
-                        var window = windows[i];
+                        var window = slots[i].Window!;
                         var hwnd = window.Hwnd;
                         var pid = window.ProcessId;
                         var baseAddr = window.BaseAddress;
@@ -204,21 +212,21 @@ namespace LeaderDecoder
                         if (isLoggingEnabled) diag.LogTelemetry(i, state);
 
                         // Follow logic for followers (Slots 2-5)
-                        if (i > 0 && i < windows.Count && gameStates[0].IsValid && isFollowEnabled)
+                        if (i > 0 && i < slots.Count && slots[i].Window is not null && gameStates[0].IsValid && isFollowEnabled)
                         {
                             if (zoneChanged)
                             {
                                 // Zone transition — stop all keys; resume next frame
-                                follow.EmergencyStop(i, windows[i].Hwnd);
+                                follow.EmergencyStop(i, slots[i].Window!.Hwnd);
                             }
                             else
                             {
-                                follow.Update(i, state, gameStates[0], windows[i].Hwnd);
+                                follow.Update(i, state, gameStates[0], slots[i].Window!.Hwnd);
                             }
                         }
-                        else if (i > 0 && i < windows.Count && !isFollowEnabled)
+                        else if (i > 0 && i < slots.Count && slots[i].Window is not null && (!gameStates[0].IsValid || !isFollowEnabled))
                         {
-                            follow.EmergencyStop(i, windows[i].Hwnd);
+                            follow.EmergencyStop(i, slots[i].Window!.Hwnd);
                         }
 
                         // UI Dashboard
@@ -227,17 +235,28 @@ namespace LeaderDecoder
                         string status = $"HP:{state.PlayerHP,3:D3} THP:{state.TargetHP,5:D5} | X:{state.CoordX,7:F1} Y:{state.CoordY,6:F1} Z:{state.CoordZ,7:F1} | F:{state.RawFacing,5:F2}({headingText})";
                         string flagStr = $"{(state.IsCombat ? "[CB]" : "    ")} {(state.IsMounted ? "[MT]" : "    ")} {(state.IsAlive ? "    " : "[DEAD]")}{zoneFlag}";
                         Console.ForegroundColor = zoneChanged ? ConsoleColor.Yellow : ConsoleColor.Gray;
-                        string identity = (i < windows.Count)
-                            ? RiftWindowService.FormatCompactIdentity(windows[i])
+                        string identity = (i < slots.Count && slots[i].Window is not null)
+                            ? RiftWindowService.FormatCompactIdentity(slots[i].Window!)
                             : "SIM_LEAD";
                         Console.WriteLine($" SLOT[{i + 1}] {identity,-26} | {status} | {flagStr}");
                         Console.ForegroundColor = ConsoleColor.Gray;
                     }
                     else
                     {
-                        string identity = i < windows.Count
-                            ? RiftWindowService.FormatCompactIdentity(windows[i])
-                            : "UNASSIGNED";
+                        if (processIds[i] != 0 || memoryHandles[i] != IntPtr.Zero)
+                        {
+                            memory.Detach(memoryHandles[i]);
+                            memoryHandles[i] = IntPtr.Zero;
+                            processIds[i] = 0;
+                        }
+
+                        gameStates[i] = new GameState();
+                        if (i > 0 && i < slots.Count && slots[i].Window is not null)
+                        {
+                            follow.EmergencyStop(i, slots[i].Window!.Hwnd);
+                        }
+
+                        string identity = RiftWindowService.FormatExpectedIdentity(i < slots.Count ? slots[i] : null);
                         Console.WriteLine($" SLOT[{i + 1}] {identity,-26} | -- STANDBY --                                                              ");
                     }
                 }
@@ -245,6 +264,21 @@ namespace LeaderDecoder
                 // 3. Maintain stable frame timing
                 while (cycleSw.ElapsedMilliseconds < (1000 / settings.TargetFPS)) Thread.Sleep(1);
             }
+        }
+
+        private static int GetDisplayTargetCount(BridgeOptions options)
+        {
+            if (options.ProcessIds is { Length: > 0 })
+            {
+                return Math.Min(options.ProcessIds.Length, 5);
+            }
+
+            if (options.Hwnds is { Length: > 0 })
+            {
+                return Math.Min(options.Hwnds.Length, 5);
+            }
+
+            return 5;
         }
 
         private static RiftWindowFilter? BuildFilter(BridgeOptions options)

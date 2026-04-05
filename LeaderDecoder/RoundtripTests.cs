@@ -20,7 +20,10 @@ namespace LeaderDecoder
 
         public static void Run()
         {
-            Console.Clear();
+            if (!Console.IsOutputRedirected)
+            {
+                Console.Clear();
+            }
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("═══════════════════════════════════════════════════");
             Console.WriteLine("  🧪 LEADER — TELEMETRY ROUNDTRIP TEST SUITE");
@@ -43,6 +46,7 @@ namespace LeaderDecoder
             TestHeading("3PI/2 (West)",    (float)(3 * Math.PI / 2));
             TestHeading("2PI (North)",     (float)(2 * Math.PI));
             TestHeading("Typical angle",   2.3456f);
+            TestHeading("Negative wraps", -0.7500f);
 
             // ── Zone hash passthrough ────────────────────────────────────
             TestZoneHash("Zero hash",   0);
@@ -55,8 +59,14 @@ namespace LeaderDecoder
             TestFlags("All set",       true,  true,  true,  true,  true);
             TestFlags("Mounted+Alive", false, false, false, true,  true);
             TestEmergencyStopResetsFollowState();
+            TestHeadingBootstrapStartsForwardMotion();
+            TestStationaryFollowerBypassesAngleGate();
+            TestFollowReleasesWithinBand();
+            TestAntiStuckClearsForwardState();
             TestWindowFilterProcessIdOrder();
             TestWindowFilterHwndOrder();
+            TestWindowSlotsPreserveMissingProcessIdEntries();
+            TestWindowSlotsPreserveMissingHwndEntries();
 
             // ── Full state roundtrip ─────────────────────────────────────
             TestFullState("Typical moving combat state", new GameState
@@ -109,11 +119,28 @@ namespace LeaderDecoder
             var sim = new TelemetrySimulator();
             var svc = new TelemetryService();
             var state = BuildState();
-            state.RawFacing = rad % (float)(2 * Math.PI);  // clamp to 0-2π
+            state.RawFacing = NormalizeProtocolHeading(rad);
             var decoded = svc.Decode(sim.Generate(state));
             float expected = state.RawFacing;
             float actual   = decoded.RawFacing;
             Assert($"Heading[{name}] ({rad:F4})", Math.Abs(actual - expected) < 0.0002f, $"got {actual:F5}");
+        }
+
+        private static float NormalizeProtocolHeading(float heading)
+        {
+            float twoPi = (float)(2 * Math.PI);
+
+            while (heading < 0)
+            {
+                heading += twoPi;
+            }
+
+            while (heading > twoPi)
+            {
+                heading -= twoPi;
+            }
+
+            return heading;
         }
 
         private static void TestZoneHash(string name, byte hash)
@@ -194,6 +221,130 @@ namespace LeaderDecoder
                 $"moving={moving[1]} err={lastError[1]} since={wSince[1]:O} dist={dist[1]}");
         }
 
+        private static void TestHeadingBootstrapStartsForwardMotion()
+        {
+            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
+            var movingField = typeof(FollowController).GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (movingField == null)
+            {
+                Assert("Follow [Unknown heading bootstraps W]", false, "reflection lookup failed");
+                return;
+            }
+
+            var leader = BuildState();
+            leader.CoordX = 10f;
+            leader.CoordZ = 10f;
+
+            var follower = BuildState();
+            follower.CoordX = 0f;
+            follower.CoordZ = 0f;
+            follower.IsHeadingLocked = false;
+            follower.EstimatedHeading = 0f;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            var moving = (bool[])movingField.GetValue(controller)!;
+            Assert("Follow [Unknown heading bootstraps W]", moving[1], $"moving={moving[1]}");
+        }
+
+        private static void TestStationaryFollowerBypassesAngleGate()
+        {
+            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
+            var movingField = typeof(FollowController).GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (movingField == null)
+            {
+                Assert("Follow [Stationary follower bypasses angle gate]", false, "reflection lookup failed");
+                return;
+            }
+
+            var leader = BuildState();
+            leader.CoordX = 10f;
+            leader.CoordZ = 0f;
+
+            var follower = BuildState();
+            follower.CoordX = 0f;
+            follower.CoordZ = 0f;
+            follower.IsHeadingLocked = true;
+            follower.IsMoving = false;
+            follower.EstimatedHeading = 0f;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            var moving = (bool[])movingField.GetValue(controller)!;
+            Assert("Follow [Stationary follower bypasses angle gate]", moving[1], $"moving={moving[1]}");
+        }
+
+        private static void TestFollowReleasesWithinBand()
+        {
+            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
+            var movingField = typeof(FollowController).GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (movingField == null)
+            {
+                Assert("Follow [Re-entering band releases W]", false, "reflection lookup failed");
+                return;
+            }
+
+            var leader = BuildState();
+            leader.CoordZ = 10f;
+
+            var follower = BuildState();
+            follower.IsHeadingLocked = false;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            follower.CoordZ = 7f;
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            var moving = (bool[])movingField.GetValue(controller)!;
+            Assert("Follow [Re-entering band releases W]", !moving[1], $"moving={moving[1]}");
+        }
+
+        private static void TestAntiStuckClearsForwardState()
+        {
+            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
+            var type = typeof(FollowController);
+
+            var movingField = type.GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
+            var lastErrorField = type.GetField("_lastError", BindingFlags.NonPublic | BindingFlags.Instance);
+            var wSinceField = type.GetField("_wForwardSince", BindingFlags.NonPublic | BindingFlags.Instance);
+            var distField = type.GetField("_distanceAtPress", BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (movingField == null || lastErrorField == null || wSinceField == null || distField == null)
+            {
+                Assert("Follow [Anti-stuck clears forward state]", false, "reflection lookup failed");
+                return;
+            }
+
+            var moving = (bool[])movingField.GetValue(controller)!;
+            var lastError = (float[])lastErrorField.GetValue(controller)!;
+            var wSince = (DateTime[])wSinceField.GetValue(controller)!;
+            var dist = (float[])distField.GetValue(controller)!;
+
+            moving[1] = true;
+            lastError[1] = 0.75f;
+            wSince[1] = DateTime.Now.AddSeconds(-6);
+            dist[1] = 10f;
+
+            var leader = BuildState();
+            leader.CoordZ = 10f;
+            var follower = BuildState();
+            follower.IsHeadingLocked = true;
+            follower.EstimatedHeading = 0f;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            bool ok = !moving[1]
+                   && Math.Abs(lastError[1]) < 0.0001f
+                   && wSince[1] == DateTime.MinValue
+                   && Math.Abs(dist[1] - float.MaxValue) < 0.0001f;
+
+            Assert("Follow [Anti-stuck clears forward state]", ok,
+                $"moving={moving[1]} err={lastError[1]} since={wSince[1]:O} dist={dist[1]}");
+        }
+
         private static void TestWindowFilterProcessIdOrder()
         {
             var windows = new[]
@@ -236,6 +387,50 @@ namespace LeaderDecoder
 
             Assert("Window [HWND list preserves order]", ok,
                 $"got [{string.Join(",", filtered.Select(window => RiftWindowService.FormatHwnd(window.Hwnd)))}]");
+        }
+
+        private static void TestWindowSlotsPreserveMissingProcessIdEntries()
+        {
+            var windows = new[]
+            {
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1002, ProcessId = 202, BaseAddress = 0 },
+            };
+
+            var slots = RiftWindowService.BuildWindowSlots(windows, new RiftWindowFilter
+            {
+                ProcessIds = new[] { 101, 202 }
+            });
+
+            bool ok = slots.Count == 2
+                && slots[0].ExpectedProcessId == 101
+                && slots[0].Window is null
+                && slots[1].ExpectedProcessId == 202
+                && slots[1].Window?.ProcessId == 202;
+
+            Assert("Window [PID slots preserve missing entries]", ok,
+                $"got [{string.Join(",", slots.Select(slot => slot.Window?.ProcessId.ToString() ?? $"missing:{slot.ExpectedProcessId}"))}]");
+        }
+
+        private static void TestWindowSlotsPreserveMissingHwndEntries()
+        {
+            var windows = new[]
+            {
+                new RiftWindowInfo { Title = "RIFT", ProcessName = "rift_x64", Hwnd = (IntPtr)0x1002, ProcessId = 202, BaseAddress = 0 },
+            };
+
+            var slots = RiftWindowService.BuildWindowSlots(windows, new RiftWindowFilter
+            {
+                Hwnds = new[] { (IntPtr)0x1001, (IntPtr)0x1002 }
+            });
+
+            bool ok = slots.Count == 2
+                && slots[0].ExpectedHwnd == (IntPtr)0x1001
+                && slots[0].Window is null
+                && slots[1].ExpectedHwnd == (IntPtr)0x1002
+                && slots[1].Window?.Hwnd == (IntPtr)0x1002;
+
+            Assert("Window [HWND slots preserve missing entries]", ok,
+                $"got [{string.Join(",", slots.Select(slot => slot.Window is not null ? RiftWindowService.FormatHwnd(slot.Window.Hwnd) : $"missing:{RiftWindowService.FormatHwnd(slot.ExpectedHwnd ?? IntPtr.Zero)}"))}]");
         }
 
         private static GameState BuildState() => new GameState

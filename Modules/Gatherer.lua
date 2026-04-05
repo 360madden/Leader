@@ -60,6 +60,22 @@ local function NormalizeAngle(angle)
     return angle
 end
 
+local function NormalizeProtocolAngle(angle)
+    if angle == nil then
+        return 0
+    end
+
+    while angle < 0 do
+        angle = angle + TWO_PI
+    end
+
+    while angle > TWO_PI do
+        angle = angle - TWO_PI
+    end
+
+    return angle
+end
+
 local function Atan2(y, x)
     if x > 0 then
         return math.atan(y / x)
@@ -212,7 +228,7 @@ function Gatherer.GetPacket()
     packet.zoneHash = ResolveZoneHash(p)
 
     local inferredHeading, isMoving, speed, isMounted = InferMotion(packet.coordX, packet.coordZ)
-    packet.facing = inferredHeading
+    packet.facing = NormalizeProtocolAngle(inferredHeading)
     packet.motionSpeed = speed
 
     -- Normalized HP [0-255]

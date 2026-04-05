@@ -67,8 +67,9 @@ namespace LeaderDecoder.Services
             float dError       = error - _lastError[slot];
             _lastError[slot]   = error;
             float steerPower   = error * _settings.TurnP + dError * _settings.TurnD;
+            bool needsMotionBootstrap = !follower.IsHeadingLocked || !follower.IsMoving;
 
-            if (Math.Abs(steerPower) > _settings.AngleTolerance)
+            if (!needsMotionBootstrap && Math.Abs(steerPower) > _settings.AngleTolerance)
             {
                 _input.TapKey(hwnd, steerPower > 0 ? InputEngine.RiftKey.D : InputEngine.RiftKey.A);
             }
@@ -76,7 +77,13 @@ namespace LeaderDecoder.Services
             // ── 2. Movement + Anti-Stuck Watchdog ─────────────────────────
             if (distance > _settings.FollowDistanceMax)
             {
-                if (!_isMovingForward[slot] && Math.Abs(error) < _settings.AngleTolerance * 2.5f)
+                // Telemetry heading is inferred from motion, so a stationary follower cannot give us
+                // trustworthy turn-in-place feedback. While stationary / unlocked, bootstrap with W
+                // first so the movement vector can establish a live heading before steering kicks in.
+                bool canBootstrapHeading = needsMotionBootstrap;
+
+                if (!_isMovingForward[slot]
+                    && (canBootstrapHeading || Math.Abs(error) < _settings.AngleTolerance * 2.5f))
                 {
                     _input.SendKeyDown(hwnd, InputEngine.RiftKey.W);
                     _isMovingForward[slot]  = true;
@@ -90,17 +97,18 @@ namespace LeaderDecoder.Services
                     if (wDuration > StuckThreshSec
                         && _distanceAtPress[slot] - distance < StuckDistDelta)
                     {
-                        // Anti-stuck: jump then reset heading lock
+                        // Anti-stuck: break the held-forward state so the next frames can
+                        // re-steer and re-arm movement from a clean baseline.
+                        _input.SendKeyUp(hwnd, InputEngine.RiftKey.W);
+                        ResetForwardState(slot);
                         _input.TapKey(hwnd, InputEngine.RiftKey.Space);
-                        _wForwardSince[slot]   = DateTime.Now;
-                        _distanceAtPress[slot] = distance;
                     }
                 }
             }
-            else if (distance < _settings.FollowDistanceMin && _isMovingForward[slot])
+            else if (_isMovingForward[slot])
             {
                 _input.SendKeyUp(hwnd, InputEngine.RiftKey.W);
-                _isMovingForward[slot] = false;
+                ResetForwardState(slot);
             }
 
             // ── 3. Mount Sync ─────────────────────────────────────────────
@@ -133,14 +141,24 @@ namespace LeaderDecoder.Services
 
             if (slot > 0 && slot < _isMovingForward.Length)
             {
-                _isMovingForward[slot] = false;
-                _lastError[slot] = 0;
-                _wForwardSince[slot] = DateTime.MinValue;
-                _distanceAtPress[slot] = float.MaxValue;
+                ResetForwardState(slot);
             }
         }
 
         public void EmergencyStop(IntPtr hwnd) => EmergencyStop(-1, hwnd);
+
+        private void ResetForwardState(int slot)
+        {
+            if (slot <= 0 || slot >= _isMovingForward.Length)
+            {
+                return;
+            }
+
+            _isMovingForward[slot] = false;
+            _lastError[slot] = 0;
+            _wForwardSince[slot] = DateTime.MinValue;
+            _distanceAtPress[slot] = float.MaxValue;
+        }
 
         private static float NormalizeAngle(float a)
         {

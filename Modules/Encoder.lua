@@ -1,6 +1,7 @@
 -- Leader/Modules/Encoder.lua
 local addon, Private = ...
 local Encoder = {}
+local TWO_PI = math.pi * 2
 
 --[[
 -- LEADER TELEMETRY ENCODER v1.1
@@ -33,6 +34,16 @@ end
 -- This matches: TelemetryService.cs  (ph.R + ph.G*256) / 10000.0f
 -- ──────────────────────────────────────────────────────────────────────────────
 function Encoder.PackHeading(radian, zoneHash)
+    radian = tonumber(radian) or 0
+
+    while radian < 0 do
+        radian = radian + TWO_PI
+    end
+
+    while radian > TWO_PI do
+        radian = radian - TWO_PI
+    end
+
     local radVal = math.floor((radian or 0) * 10000)
     radVal = math.max(0, math.min(65535, radVal))
     local r = radVal % 256
