@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Imaging;
+using System.Linq;
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -9,17 +9,12 @@ using System.Threading;
 using LeaderDecoder.Models;
 using LeaderDecoder.Services;
 
-// ────────────────────────────────────────────────────────────────────────────
-// Leader Telemetry Roundtrip Tests
-// Run with: dotnet run --project LeaderDecoder -- --test
-// Validates Encoder.lua → TelemetryService decode pipeline.
-// ────────────────────────────────────────────────────────────────────────────
-
 namespace LeaderDecoder
 {
     internal static class RoundtripTests
     {
-        private static int _pass = 0, _fail = 0;
+        private static int _pass;
+        private static int _fail;
 
         public static void Run()
         {
@@ -27,51 +22,49 @@ namespace LeaderDecoder
             {
                 Console.Clear();
             }
+
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("═══════════════════════════════════════════════════");
             Console.WriteLine("  🧪 LEADER — TELEMETRY ROUNDTRIP TEST SUITE");
             Console.WriteLine("═══════════════════════════════════════════════════");
             Console.ResetColor();
 
-            // ── Coord encode/decode ──────────────────────────────────────
-            TestCoord("Zero position",     0f);
-            TestCoord("Positive X",        1234.5f);
-            TestCoord("Negative Z",       -987.6f);
-            TestCoord("Large coord",       50000.1f);
-            TestCoord("Negative large",   -50000.1f);
-            TestCoord("Sub-unit prec",     0.1f);
-            TestCoord("Sub-unit prec 2",   0.09f);  // below 0.1 precision — expect ~0
+            TestCoord("Zero position", 0f);
+            TestCoord("Positive X", 1234.5f);
+            TestCoord("Negative Z", -987.6f);
+            TestCoord("Large coord", 50000.1f);
+            TestCoord("Negative large", -50000.1f);
+            TestCoord("Sub-unit prec", 0.1f);
+            TestCoord("Sub-unit prec 2", 0.09f);
 
-            // ── Heading encode/decode ────────────────────────────────────
-            TestHeading("Zero radians",    0f);
-            TestHeading("PI/2 (East)",     (float)(Math.PI / 2));
-            TestHeading("PI (South)",      (float)Math.PI);
-            TestHeading("3PI/2 (West)",    (float)(3 * Math.PI / 2));
-            TestHeading("2PI (North)",     (float)(2 * Math.PI));
-            TestHeading("Typical angle",   2.3456f);
-            TestHeading("Negative wraps", -0.7500f);
+            TestHeading("Zero radians", 0f);
+            TestHeading("PI/2 (East)", (float)(Math.PI / 2));
+            TestHeading("PI (South)", (float)Math.PI);
+            TestHeading("3PI/2 (West)", (float)(3 * Math.PI / 2));
+            TestHeading("2PI (North)", (float)(2 * Math.PI));
+            TestHeading("Typical angle", 2.3456f);
+            TestHeading("Negative wraps", -0.75f);
 
-            // ── Zone hash passthrough ────────────────────────────────────
-            TestZoneHash("Zero hash",   0);
-            TestZoneHash("Max hash",    255);
-            TestZoneHash("Mid hash",    128);
+            TestZoneHash("Zero hash", 0);
+            TestZoneHash("Max hash", 255);
+            TestZoneHash("Mid hash", 128);
 
-            // ── Player tag passthrough ───────────────────────────────────
             TestPlayerTag("Exact tag", "BOB1", "BOB1");
             TestPlayerTag("Normalized tag", "ab-cd", "ABCD");
 
-            // ── Flag bitfield ────────────────────────────────────────────
-            TestFlags("All clear",     false, false, false, false, false);
-            TestFlags("Combat only",   true,  false, false, true,  false);
-            TestFlags("All set",       true,  true,  true,  true,  true);
-            TestFlags("Mounted+Alive", false, false, false, true,  true);
+            TestFlags("All clear", false, false, false, false, false);
+            TestFlags("Combat only", true, false, false, true, false);
+            TestFlags("All set", true, true, true, true, true);
+            TestFlags("Mounted+Alive", false, false, false, true, true);
+
             TestMotionEstimatorUsesCoordinateDeltas();
             TestBreadcrumbFollowTargetTrailsPath();
-            TestFollowBootstrapsForwardProbe();
-            TestFollowProjectsIntoStrafe();
+            TestFollowBootstrapsForwardCalibration();
+            TestForwardCalibrationLearnsBasisAndDerivesLeftAxis();
             TestFollowBackpedalsWhenGoalIsBehind();
             TestFollowUsesBreadcrumbTrailInsteadOfBodyChase();
-            TestEmergencyStopResetsBasisState();
+            TestWorseningProgressForcesRecalibration();
+            TestEmergencyStopResetsBasisAndReleasesKeys();
             TestMountSyncUsesConfiguredKey();
             TestAssistUsesConfiguredKey();
             TestZoneChangeClearsHeadingHistory();
@@ -81,17 +74,22 @@ namespace LeaderDecoder
             TestWindowSlotsPreserveMissingProcessIdEntries();
             TestWindowSlotsPreserveMissingHwndEntries();
 
-            // ── Full state roundtrip ─────────────────────────────────────
             TestFullState("Typical moving combat state", new GameState
             {
-                CoordX    = 5432.1f, CoordY = 23.4f, CoordZ = -1234.5f,
-                RawFacing = 1.5708f, ZoneHash = 42,
-                PlayerHP  = 200,     TargetHP = 127,
-                IsCombat  = true,    HasTarget = true, IsMoving = false,
-                IsAlive   = true,    IsMounted = false
+                CoordX = 5432.1f,
+                CoordY = 23.4f,
+                CoordZ = -1234.5f,
+                RawFacing = 1.5708f,
+                ZoneHash = 42,
+                PlayerHP = 200,
+                TargetHP = 127,
+                IsCombat = true,
+                HasTarget = true,
+                IsMoving = false,
+                IsAlive = true,
+                IsMounted = false,
             });
 
-            // ── Summary ──────────────────────────────────────────────────
             Console.WriteLine();
             Console.WriteLine("───────────────────────────────────────────────────");
             if (_fail == 0)
@@ -107,60 +105,39 @@ namespace LeaderDecoder
             Console.ResetColor();
         }
 
-        // ── Test helpers ──────────────────────────────────────────────────
-
         private static void TestCoord(string name, float value)
         {
             var sim = new TelemetrySimulator();
             var svc = new TelemetryService();
-
-            float round = value < -838860f || value > 838860f ? 0 : (float)Math.Round(value * 10) / 10;
-            if (Math.Abs(value * 10 - Math.Floor(value * 10)) > 0.5f && Math.Abs(value) >= 0.1f)
-                round = (float)Math.Round(value, 1);
-
             var state = BuildState();
             state.CoordX = value;
-            var decoded = svc.Decode(sim.Generate(state));
 
+            var decoded = svc.Decode(sim.Generate(state));
             float expected = (float)Math.Round(value * 10) / 10f;
-            float actual   = (float)Math.Round(decoded.CoordX * 10) / 10f;
-            Assert($"Coord  [{name}] ({value}→{expected})", Math.Abs(actual - expected) < 0.11f, $"got {actual}");
+            float actual = (float)Math.Round(decoded.CoordX * 10) / 10f;
+
+            Assert($"Coord  [{name}] ({value}->{expected})", Math.Abs(actual - expected) < 0.11f, $"got {actual}");
         }
 
-        private static void TestHeading(string name, float rad)
+        private static void TestHeading(string name, float radians)
         {
             var sim = new TelemetrySimulator();
             var svc = new TelemetryService();
             var state = BuildState();
-            state.RawFacing = NormalizeProtocolHeading(rad);
+            state.RawFacing = NormalizeProtocolHeading(radians);
+
             var decoded = svc.Decode(sim.Generate(state));
-            float expected = state.RawFacing;
-            float actual   = decoded.RawFacing;
-            Assert($"Heading[{name}] ({rad:F4})", Math.Abs(actual - expected) < 0.0002f, $"got {actual:F5}");
-        }
-
-        private static float NormalizeProtocolHeading(float heading)
-        {
-            float twoPi = (float)(2 * Math.PI);
-
-            while (heading < 0)
-            {
-                heading += twoPi;
-            }
-
-            while (heading > twoPi)
-            {
-                heading -= twoPi;
-            }
-
-            return heading;
+            Assert($"Heading[{name}] ({radians:F4})", Math.Abs(decoded.RawFacing - state.RawFacing) < 0.0002f,
+                $"got {decoded.RawFacing:F5}");
         }
 
         private static void TestZoneHash(string name, byte hash)
         {
             var sim = new TelemetrySimulator();
             var svc = new TelemetryService();
-            var state = BuildState(); state.ZoneHash = hash;
+            var state = BuildState();
+            state.ZoneHash = hash;
+
             var decoded = svc.Decode(sim.Generate(state));
             Assert($"Zone   [{name}] ({hash})", decoded.ZoneHash == hash, $"got {decoded.ZoneHash}");
         }
@@ -171,6 +148,7 @@ namespace LeaderDecoder
             var svc = new TelemetryService();
             var state = BuildState();
             state.PlayerTag = tag;
+
             var decoded = svc.Decode(sim.Generate(state));
             Assert($"Tag    [{name}] ({tag}->{expected})", decoded.PlayerTag == expected, $"got {decoded.PlayerTag}");
         }
@@ -180,15 +158,21 @@ namespace LeaderDecoder
             var sim = new TelemetrySimulator();
             var svc = new TelemetryService();
             var state = BuildState();
-            state.IsCombat = combat; state.HasTarget = target; state.IsMoving = moving;
-            state.IsAlive  = alive;  state.IsMounted = mounted;
+            state.IsCombat = combat;
+            state.HasTarget = target;
+            state.IsMoving = moving;
+            state.IsAlive = alive;
+            state.IsMounted = mounted;
+
             var decoded = svc.Decode(sim.Generate(state));
-            bool ok = decoded.IsCombat  == combat
-                   && decoded.HasTarget == target
-                   && decoded.IsMoving  == moving
-                   && decoded.IsAlive   == alive
-                   && decoded.IsMounted == mounted;
-            Assert($"Flags  [{name}]", ok, $"got CB:{decoded.IsCombat} TG:{decoded.HasTarget} MV:{decoded.IsMoving} AL:{decoded.IsAlive} MT:{decoded.IsMounted}");
+            bool ok = decoded.IsCombat == combat
+                && decoded.HasTarget == target
+                && decoded.IsMoving == moving
+                && decoded.IsAlive == alive
+                && decoded.IsMounted == mounted;
+
+            Assert($"Flags  [{name}]", ok,
+                $"got CB:{decoded.IsCombat} TG:{decoded.HasTarget} MV:{decoded.IsMoving} AL:{decoded.IsAlive} MT:{decoded.IsMounted}");
         }
 
         private static void TestFullState(string name, GameState original)
@@ -205,574 +189,6 @@ namespace LeaderDecoder
 
             Assert($"Full   [{name}]", xOk && yOk && zOk && hOk && fOk,
                 $"X:{decoded.CoordX:F1} Y:{decoded.CoordY:F1} Z:{decoded.CoordZ:F1} H:{decoded.RawFacing:F4}");
-        }
-
-        private static void TestEmergencyStopResetsFollowState()
-        {
-            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
-            var type = typeof(FollowController);
-
-            var movingField = type.GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
-            var lastErrorField = type.GetField("_lastError", BindingFlags.NonPublic | BindingFlags.Instance);
-            var wSinceField = type.GetField("_wForwardSince", BindingFlags.NonPublic | BindingFlags.Instance);
-            var distField = type.GetField("_distanceAtPress", BindingFlags.NonPublic | BindingFlags.Instance);
-            var headingField = type.GetField("_controlHeading", BindingFlags.NonPublic | BindingFlags.Instance);
-            var knownField = type.GetField("_controlHeadingKnown", BindingFlags.NonPublic | BindingFlags.Instance);
-            var settleField = type.GetField("_turnSettledUntil", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (movingField == null || lastErrorField == null || wSinceField == null || distField == null
-                || headingField == null || knownField == null || settleField == null)
-            {
-                Assert("Follow [EmergencyStop resets slot state]", false, "reflection lookup failed");
-                return;
-            }
-
-            var moving = (bool[])movingField.GetValue(controller)!;
-            var lastError = (float[])lastErrorField.GetValue(controller)!;
-            var wSince = (DateTime[])wSinceField.GetValue(controller)!;
-            var dist = (float[])distField.GetValue(controller)!;
-            var heading = (float[])headingField.GetValue(controller)!;
-            var known = (bool[])knownField.GetValue(controller)!;
-            var settle = (DateTime[])settleField.GetValue(controller)!;
-
-            moving[1] = true;
-            lastError[1] = 1.25f;
-            wSince[1] = DateTime.Now;
-            dist[1] = 9.5f;
-            heading[1] = 1.75f;
-            known[1] = true;
-            settle[1] = DateTime.Now.AddSeconds(2);
-
-            controller.EmergencyStop(1, IntPtr.Zero);
-
-            bool ok = !moving[1]
-                   && Math.Abs(lastError[1]) < 0.0001f
-                   && wSince[1] == DateTime.MinValue
-                   && Math.Abs(dist[1] - float.MaxValue) < 0.0001f
-                   && Math.Abs(heading[1]) < 0.0001f
-                   && !known[1]
-                   && settle[1] == DateTime.MinValue;
-
-            Assert("Follow [EmergencyStop resets slot state]", ok,
-                $"moving={moving[1]} err={lastError[1]} since={wSince[1]:O} dist={dist[1]} heading={heading[1]} known={known[1]} settle={settle[1]:O}");
-        }
-
-        private static void TestUnknownHeadingTurnsFirst()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings
-            {
-                KeyTurnLeft = (byte)InputEngine.RiftKey.Num3,
-                KeyTurnRight = (byte)InputEngine.RiftKey.Num4
-            };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-
-            var leader = BuildState();
-            leader.CoordX = 10f;
-            leader.CoordZ = 10f;
-
-            var follower = BuildState();
-            follower.CoordX = 0f;
-            follower.CoordZ = 0f;
-            follower.IsHeadingLocked = false;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = input.DownScanCodes.Count == 0
-                && input.TappedScanCodes.Count == 1
-                && input.TappedScanCodes[0] == settings.KeyTurnRight;
-
-            Assert("Follow [Unknown heading turns first]", ok,
-                $"downs=[{string.Join(",", input.DownScanCodes)}] taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestStationaryFollowerTurnsBeforeMove()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings
-            {
-                KeyTurnLeft = (byte)InputEngine.RiftKey.Num3,
-                KeyTurnRight = (byte)InputEngine.RiftKey.Num4
-            };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-
-            var leader = BuildState();
-            leader.CoordX = 10f;
-            leader.CoordZ = 0f;
-
-            var follower = BuildState();
-            follower.CoordX = 0f;
-            follower.CoordZ = 0f;
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = false;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = input.DownScanCodes.Count == 0
-                && input.TappedScanCodes.Count == 1
-                && input.TappedScanCodes[0] == settings.KeyTurnRight;
-
-            Assert("Follow [Stationary follower turns before move]", ok,
-                $"downs=[{string.Join(",", input.DownScanCodes)}] taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestTurnCommandSeedsControlHeading()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings { TurnRateRadiansPerSecond = 3.0f };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-            var headingField = typeof(FollowController).GetField("_controlHeading", BindingFlags.NonPublic | BindingFlags.Instance);
-            var knownField = typeof(FollowController).GetField("_controlHeadingKnown", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (headingField == null || knownField == null)
-            {
-                Assert("Follow [Turn command seeds control heading]", false, "reflection lookup failed");
-                return;
-            }
-
-            var leader = BuildState();
-            leader.CoordX = 10f;
-            leader.CoordZ = 0f;
-
-            var follower = BuildState();
-            follower.CoordX = 0f;
-            follower.CoordZ = 0f;
-            follower.IsHeadingLocked = false;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            var headings = (float[])headingField.GetValue(controller)!;
-            var known = (bool[])knownField.GetValue(controller)!;
-            bool ok = known[1] && headings[1] > 0f;
-
-            Assert("Follow [Turn command seeds control heading]", ok,
-                $"known={known[1]} heading={headings[1]:F4}");
-        }
-
-        private static void TestTurnSettleBlocksForwardAdvance()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings();
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-            var settleField = typeof(FollowController).GetField("_turnSettledUntil", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (settleField == null)
-            {
-                Assert("Follow [Turn settle blocks forward advance]", false, "reflection lookup failed");
-                return;
-            }
-
-            var settle = (DateTime[])settleField.GetValue(controller)!;
-            settle[1] = DateTime.Now.AddSeconds(1);
-
-            var leader = BuildState();
-            leader.CoordZ = 10f;
-
-            var follower = BuildState();
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = !input.DownScanCodes.Contains(settings.KeyForward)
-                && !input.TappedScanCodes.Contains(settings.KeyForward);
-
-            Assert("Follow [Turn settle blocks forward advance]", ok,
-                $"downs=[{string.Join(",", input.DownScanCodes)}] taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestFollowReleasesWithinBand()
-        {
-            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
-            var movingField = typeof(FollowController).GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (movingField == null)
-            {
-                Assert("Follow [Re-entering band releases W]", false, "reflection lookup failed");
-                return;
-            }
-
-            var leader = BuildState();
-            leader.CoordZ = 10f;
-
-            var follower = BuildState();
-            follower.IsHeadingLocked = false;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            follower.CoordZ = 7f;
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            var moving = (bool[])movingField.GetValue(controller)!;
-            Assert("Follow [Re-entering band releases W]", !moving[1], $"moving={moving[1]}");
-        }
-
-        private static void TestWithinBandDoesNotTurnSpam()
-        {
-            var input = new RecordingInputEngine();
-            var controller = new FollowController(input, new NavigationKernel(), new BridgeSettings());
-
-            var leader = BuildState();
-            leader.CoordX = 2f;
-            leader.CoordZ = 0f;
-
-            var follower = BuildState();
-            follower.CoordX = 0f;
-            follower.CoordZ = 0f;
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = input.TappedScanCodes.Count == 0;
-            Assert("Follow [Within band suppresses steering]", ok,
-                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestLargeAngleTurnsBeforeForwardHold()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings
-            {
-                KeyTurnLeft = (byte)InputEngine.RiftKey.Num3,
-                KeyTurnRight = (byte)InputEngine.RiftKey.Num4
-            };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-
-            var leader = BuildState();
-            leader.CoordX = 10f;
-            leader.CoordZ = 0f;
-
-            var follower = BuildState();
-            follower.CoordX = 0f;
-            follower.CoordZ = 0f;
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = !input.DownScanCodes.Contains(settings.KeyForward)
-                && input.TappedScanCodes.Count == 1
-                && input.TappedScanCodes[0] == settings.KeyTurnRight;
-
-            Assert("Follow [Large angle turns before W hold]", ok,
-                $"downs=[{string.Join(",", input.DownScanCodes)}] taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestTrailingAnchorStopsOverchase()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings();
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-            var movingField = typeof(FollowController).GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (movingField == null)
-            {
-                Assert("Follow [Trailing anchor avoids overchase]", false, "reflection lookup failed");
-                return;
-            }
-
-            var leader = BuildState();
-            leader.CoordZ = 10f;
-            leader.IsHeadingLocked = true;
-            leader.EstimatedHeading = 0f;
-            leader.IsMoving = true;
-
-            var follower = BuildState();
-            follower.CoordZ = 6.2f;
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            var moving = (bool[])movingField.GetValue(controller)!;
-            bool ok = !moving[1]
-                && !input.DownScanCodes.Contains(settings.KeyForward)
-                && !input.TappedScanCodes.Contains(settings.KeyForward);
-
-            Assert("Follow [Trailing anchor avoids overchase]", ok,
-                $"moving={moving[1]} downs=[{string.Join(",", input.DownScanCodes)}] taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestApproachBandUsesForwardPulse()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings();
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-            var movingField = typeof(FollowController).GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (movingField == null)
-            {
-                Assert("Follow [Approach band uses W pulse]", false, "reflection lookup failed");
-                return;
-            }
-
-            var leader = BuildState();
-            leader.CoordZ = 10f;
-            leader.IsHeadingLocked = true;
-            leader.EstimatedHeading = 0f;
-            leader.IsMoving = true;
-
-            var follower = BuildState();
-            follower.CoordZ = 4.8f;
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            var moving = (bool[])movingField.GetValue(controller)!;
-            bool ok = !moving[1]
-                && input.TappedScanCodes.Contains(settings.KeyForward)
-                && !input.DownScanCodes.Contains(settings.KeyForward);
-
-            Assert("Follow [Approach band uses W pulse]", ok,
-                $"moving={moving[1]} downs=[{string.Join(",", input.DownScanCodes)}] taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestSteeringTapScalesWithError()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings
-            {
-                KeyTurnLeft = (byte)InputEngine.RiftKey.Num3,
-                KeyTurnRight = (byte)InputEngine.RiftKey.Num4
-            };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-
-            var leader = BuildState();
-            leader.CoordX = 10f;
-            leader.CoordZ = 0f;
-
-            var follower = BuildState();
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-            int largeErrorIndex = input.TappedScanCodes.IndexOf(settings.KeyTurnRight);
-            if (largeErrorIndex < 0)
-            {
-                Assert("Follow [Steering scales with error]", false, $"tapCodes=[{string.Join(",", input.TappedScanCodes)}]");
-                return;
-            }
-
-            int largeErrorTap = input.TapDurations[largeErrorIndex];
-
-            var inputSmall = new RecordingInputEngine();
-            var controllerSmall = new FollowController(inputSmall, new NavigationKernel(), settings);
-            var leaderSmall = BuildState();
-            leaderSmall.CoordX = 3f;
-            leaderSmall.CoordZ = 10f;
-
-            var followerSmall = BuildState();
-            followerSmall.IsHeadingLocked = true;
-            followerSmall.IsMoving = true;
-            followerSmall.EstimatedHeading = 0f;
-
-            controllerSmall.Update(1, followerSmall, leaderSmall, IntPtr.Zero);
-            int smallErrorIndex = inputSmall.TappedScanCodes.IndexOf(settings.KeyTurnRight);
-            if (smallErrorIndex < 0)
-            {
-                Assert("Follow [Steering scales with error]", false, $"smallTapCodes=[{string.Join(",", inputSmall.TappedScanCodes)}]");
-                return;
-            }
-
-            int smallErrorTap = inputSmall.TapDurations[smallErrorIndex];
-            bool ok = largeErrorTap > smallErrorTap;
-            Assert("Follow [Steering scales with error]", ok,
-                $"large={largeErrorTap} small={smallErrorTap}");
-        }
-
-        private static void TestAntiStuckClearsForwardState()
-        {
-            var controller = new FollowController(new InputEngine(), new NavigationKernel(), new BridgeSettings());
-            var type = typeof(FollowController);
-
-            var movingField = type.GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
-            var lastErrorField = type.GetField("_lastError", BindingFlags.NonPublic | BindingFlags.Instance);
-            var wSinceField = type.GetField("_wForwardSince", BindingFlags.NonPublic | BindingFlags.Instance);
-            var distField = type.GetField("_distanceAtPress", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (movingField == null || lastErrorField == null || wSinceField == null || distField == null)
-            {
-                Assert("Follow [Anti-stuck clears forward state]", false, "reflection lookup failed");
-                return;
-            }
-
-            var moving = (bool[])movingField.GetValue(controller)!;
-            var lastError = (float[])lastErrorField.GetValue(controller)!;
-            var wSince = (DateTime[])wSinceField.GetValue(controller)!;
-            var dist = (float[])distField.GetValue(controller)!;
-
-            moving[1] = true;
-            lastError[1] = 0.75f;
-            wSince[1] = DateTime.Now.AddSeconds(-6);
-            dist[1] = 10f;
-
-            var leader = BuildState();
-            leader.CoordZ = 10f;
-            var follower = BuildState();
-            follower.IsHeadingLocked = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = !moving[1]
-                   && Math.Abs(lastError[1]) < 0.0001f
-                   && wSince[1] == DateTime.MinValue
-                   && Math.Abs(dist[1] - float.MaxValue) < 0.0001f;
-
-            Assert("Follow [Anti-stuck clears forward state]", ok,
-                $"moving={moving[1]} err={lastError[1]} since={wSince[1]:O} dist={dist[1]}");
-        }
-
-        private static void TestAntiStuckDoesNotJump()
-        {
-            var input = new RecordingInputEngine();
-            var controller = new FollowController(input, new NavigationKernel(), new BridgeSettings());
-            var type = typeof(FollowController);
-
-            var movingField = type.GetField("_isMovingForward", BindingFlags.NonPublic | BindingFlags.Instance);
-            var wSinceField = type.GetField("_wForwardSince", BindingFlags.NonPublic | BindingFlags.Instance);
-            var distField = type.GetField("_distanceAtPress", BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (movingField == null || wSinceField == null || distField == null)
-            {
-                Assert("Follow [Anti-stuck does not jump]", false, "reflection lookup failed");
-                return;
-            }
-
-            var moving = (bool[])movingField.GetValue(controller)!;
-            var wSince = (DateTime[])wSinceField.GetValue(controller)!;
-            var dist = (float[])distField.GetValue(controller)!;
-
-            moving[1] = true;
-            wSince[1] = DateTime.Now.AddSeconds(-6);
-            dist[1] = 10f;
-
-            var leader = BuildState();
-            leader.CoordZ = 10f;
-            var follower = BuildState();
-            follower.IsHeadingLocked = true;
-            follower.IsMoving = true;
-            follower.EstimatedHeading = 0f;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = input.TappedScanCodes.Count == 0;
-            Assert("Follow [Anti-stuck does not jump]", ok,
-                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestMountSyncUsesConfiguredKey()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings { KeyMount = (byte)InputEngine.RiftKey.Num1 };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-
-            var leader = BuildState();
-            leader.IsMounted = true;
-
-            var follower = BuildState();
-            follower.IsMounted = false;
-            follower.CoordX = leader.CoordX;
-            follower.CoordZ = leader.CoordZ;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = input.TappedScanCodes.Count == 1
-                && input.TappedScanCodes[0] == settings.KeyMount;
-            Assert("Follow [Mount sync uses configured key]", ok,
-                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestAssistUsesConfiguredKey()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings { KeyInteract = (byte)InputEngine.RiftKey.Num2 };
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-
-            var leader = BuildState();
-            leader.HasTarget = true;
-
-            var follower = BuildState();
-            follower.HasTarget = false;
-            follower.CoordX = leader.CoordX;
-            follower.CoordZ = leader.CoordZ;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            bool ok = input.TappedScanCodes.Count == 1
-                && input.TappedScanCodes[0] == settings.KeyInteract;
-            Assert("Follow [Assist uses configured key]", ok,
-                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
-        }
-
-        private static void TestZoneChangeClearsHeadingHistory()
-        {
-            var nav = new NavigationKernel();
-
-            var first = BuildState();
-            first.ZoneHash = 1;
-            first.CoordX = 0f;
-            first.CoordZ = 0f;
-
-            var second = BuildState();
-            second.ZoneHash = 1;
-            second.CoordX = 0f;
-            second.CoordZ = 2f;
-            second.IsMoving = true;
-
-            var third = BuildState();
-            third.ZoneHash = 2;
-            third.CoordX = 50f;
-            third.CoordZ = 50f;
-            third.RawFacing = 0f;
-            third.IsMoving = false;
-
-            nav.UpdateHeading(1, first);
-            nav.UpdateHeading(1, second);
-            bool zoneChanged = nav.UpdateHeading(1, third);
-
-            bool ok = zoneChanged && !third.IsHeadingLocked && Math.Abs(third.EstimatedHeading) < 0.0001f;
-            Assert("Nav    [Zone change clears heading history]", ok,
-                $"zoneChanged={zoneChanged} locked={third.IsHeadingLocked} heading={third.EstimatedHeading:F4}");
-        }
-
-        private static void TestZoneMismatchStopsFollow()
-        {
-            var input = new RecordingInputEngine();
-            var settings = new BridgeSettings();
-            var controller = new FollowController(input, new NavigationKernel(), settings);
-            SeedBasis(controller, 1, new Vector2(0f, 1f), new Vector2(-1f, 0f));
-
-            var leader = BuildState();
-            leader.ZoneHash = 10;
-            leader.CoordZ = 20f;
-
-            var follower = BuildState();
-            follower.ZoneHash = 20;
-
-            controller.Update(1, follower, leader, IntPtr.Zero);
-
-            (bool hasForward, bool hasLeft) = ReadBasisFlags(controller, 1);
-            bool ok = !hasForward
-                && !hasLeft
-                && input.UpScanCodes.Contains(settings.KeyForward)
-                && input.UpScanCodes.Contains(settings.KeyLeft)
-                && input.UpScanCodes.Contains(settings.KeyBack)
-                && input.UpScanCodes.Contains(settings.KeyRight);
-
-            Assert("Follow [Zone mismatch stops follow]", ok,
-                $"hasForward={hasForward} hasLeft={hasLeft} ups=[{string.Join(",", input.UpScanCodes)}]");
         }
 
         private static void TestMotionEstimatorUsesCoordinateDeltas()
@@ -827,7 +243,7 @@ namespace LeaderDecoder
             Assert("Nav    [Breadcrumb target trails path]", ok, $"x={x:F2} z={z:F2}");
         }
 
-        private static void TestFollowBootstrapsForwardProbe()
+        private static void TestFollowBootstrapsForwardCalibration()
         {
             var input = new RecordingInputEngine();
             var settings = new BridgeSettings();
@@ -835,38 +251,50 @@ namespace LeaderDecoder
 
             var leader = BuildState();
             leader.CoordZ = 10f;
-
             var follower = BuildState();
 
             controller.Update(1, follower, leader, IntPtr.Zero);
 
+            var debug = ReadSlotDebug(controller, 1);
             bool ok = input.TappedScanCodes.Count == 1
                 && input.TappedScanCodes[0] == settings.KeyForward
-                && !input.TappedScanCodes.Contains(settings.KeyTurnLeft)
-                && !input.TappedScanCodes.Contains(settings.KeyTurnRight);
+                && !debug.HasForwardBasis
+                && debug.HasPendingCalibration;
 
-            Assert("Follow [Bootstrap uses forward probe]", ok,
-                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+            Assert("Follow [Bootstrap uses forward calibration]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] hasBasis={debug.HasForwardBasis} pending={debug.HasPendingCalibration}");
         }
 
-        private static void TestFollowProjectsIntoStrafe()
+        private static void TestForwardCalibrationLearnsBasisAndDerivesLeftAxis()
         {
             var input = new RecordingInputEngine();
             var settings = new BridgeSettings();
             var controller = new FollowController(input, new NavigationKernel(), settings);
-            SeedBasis(controller, 1, new Vector2(0f, 1f), new Vector2(-1f, 0f));
 
-            var leader = BuildState();
-            leader.CoordX = -5f;
-            leader.CoordZ = 0f;
+            var leaderAhead = BuildState();
+            leaderAhead.CoordZ = 8f;
+            var followerStart = BuildState();
 
-            var follower = BuildState();
+            controller.Update(1, followerStart, leaderAhead, IntPtr.Zero);
+            Thread.Sleep(150);
 
-            controller.Update(1, follower, leader, IntPtr.Zero);
+            var leaderLeft = BuildState();
+            leaderLeft.CoordX = -5f;
+            leaderLeft.CoordZ = 0.8f;
+            var followerAfterProbe = BuildState();
+            followerAfterProbe.CoordZ = 0.8f;
+            followerAfterProbe.IsMoving = true;
 
-            bool ok = input.TappedScanCodes.Count == 1 && input.TappedScanCodes[0] == settings.KeyLeft;
-            Assert("Follow [Projected error strafes]", ok,
-                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+            controller.Update(1, followerAfterProbe, leaderLeft, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = input.TappedScanCodes.Count == 2
+                && input.TappedScanCodes[0] == settings.KeyForward
+                && input.TappedScanCodes[1] == settings.KeyLeft
+                && debug.HasForwardBasis;
+
+            Assert("Follow [Forward probe learns basis and derives left]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] hasBasis={debug.HasForwardBasis} forward=({debug.Forward.X:F2},{debug.Forward.Y:F2})");
         }
 
         private static void TestFollowBackpedalsWhenGoalIsBehind()
@@ -874,12 +302,10 @@ namespace LeaderDecoder
             var input = new RecordingInputEngine();
             var settings = new BridgeSettings();
             var controller = new FollowController(input, new NavigationKernel(), settings);
-            SeedBasis(controller, 1, new Vector2(0f, 1f), new Vector2(-1f, 0f));
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
 
             var leader = BuildState();
-            leader.CoordX = 0f;
             leader.CoordZ = -5f;
-
             var follower = BuildState();
 
             controller.Update(1, follower, leader, IntPtr.Zero);
@@ -895,7 +321,7 @@ namespace LeaderDecoder
             var nav = new NavigationKernel();
             var settings = new BridgeSettings();
             var controller = new FollowController(input, nav, settings);
-            SeedBasis(controller, 1, new Vector2(0f, 1f), new Vector2(-1f, 0f));
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
 
             var leader0 = BuildState();
             leader0.CoordX = 0f;
@@ -919,7 +345,7 @@ namespace LeaderDecoder
             leader2.SmoothedVelocityZ = 0f;
 
             var follower = BuildState();
-            follower.CoordX = 0f;
+            follower.CoordX = 2.5f;
             follower.CoordZ = 2f;
 
             controller.Update(1, follower, leader2, IntPtr.Zero);
@@ -929,17 +355,147 @@ namespace LeaderDecoder
                 $"taps=[{string.Join(",", input.TappedScanCodes)}]");
         }
 
-        private static void TestEmergencyStopResetsBasisState()
+        private static void TestWorseningProgressForcesRecalibration()
         {
-            var controller = new FollowController(new RecordingInputEngine(), new NavigationKernel(), new BridgeSettings());
-            SeedBasis(controller, 1, new Vector2(0f, 1f), new Vector2(-1f, 0f));
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
+            SeedProgress(controller, 1, lastGoalDistance: 4f, worseningTicks: 2, stallTicks: 0);
+
+            var leader = BuildState();
+            leader.CoordZ = 10f;
+            var follower = BuildState();
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = input.TappedScanCodes.Count == 1
+                && input.TappedScanCodes[0] == settings.KeyForward
+                && !debug.HasForwardBasis
+                && debug.HasPendingCalibration;
+
+            Assert("Follow [Worsening progress triggers recalibration]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}] hasBasis={debug.HasForwardBasis} pending={debug.HasPendingCalibration}");
+        }
+
+        private static void TestEmergencyStopResetsBasisAndReleasesKeys()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
 
             controller.EmergencyStop(1, IntPtr.Zero);
 
-            (bool hasForward, bool hasLeft) = ReadBasisFlags(controller, 1);
-            bool ok = !hasForward && !hasLeft;
-            Assert("Follow [EmergencyStop resets basis]", ok,
-                $"hasForward={hasForward} hasLeft={hasLeft}");
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = !debug.HasForwardBasis
+                && input.UpScanCodes.Contains(settings.KeyForward)
+                && input.UpScanCodes.Contains(settings.KeyLeft)
+                && input.UpScanCodes.Contains(settings.KeyBack)
+                && input.UpScanCodes.Contains(settings.KeyRight);
+
+            Assert("Follow [EmergencyStop resets basis and releases keys]", ok,
+                $"hasBasis={debug.HasForwardBasis} ups=[{string.Join(",", input.UpScanCodes)}]");
+        }
+
+        private static void TestMountSyncUsesConfiguredKey()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings { KeyMount = (byte)InputEngine.RiftKey.Num1 };
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+
+            var leader = BuildState();
+            leader.IsMounted = true;
+
+            var follower = BuildState();
+            follower.IsMounted = false;
+            follower.CoordX = leader.CoordX;
+            follower.CoordZ = leader.CoordZ;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            bool ok = input.TappedScanCodes.Count == 1 && input.TappedScanCodes[0] == settings.KeyMount;
+            Assert("Follow [Mount sync uses configured key]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+        }
+
+        private static void TestAssistUsesConfiguredKey()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings { KeyInteract = (byte)InputEngine.RiftKey.Num2 };
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+
+            var leader = BuildState();
+            leader.HasTarget = true;
+
+            var follower = BuildState();
+            follower.HasTarget = false;
+            follower.CoordX = leader.CoordX;
+            follower.CoordZ = leader.CoordZ;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            bool ok = input.TappedScanCodes.Count == 1 && input.TappedScanCodes[0] == settings.KeyInteract;
+            Assert("Follow [Assist uses configured key]", ok,
+                $"taps=[{string.Join(",", input.TappedScanCodes)}]");
+        }
+
+        private static void TestZoneChangeClearsHeadingHistory()
+        {
+            var nav = new NavigationKernel();
+
+            var first = BuildState();
+            first.ZoneHash = 1;
+            first.CoordX = 0f;
+            first.CoordZ = 0f;
+
+            var second = BuildState();
+            second.ZoneHash = 1;
+            second.CoordX = 0f;
+            second.CoordZ = 2f;
+            second.IsMoving = true;
+
+            var third = BuildState();
+            third.ZoneHash = 2;
+            third.CoordX = 50f;
+            third.CoordZ = 50f;
+            third.IsMoving = false;
+
+            nav.UpdateHeading(1, first);
+            nav.UpdateHeading(1, second);
+            bool zoneChanged = nav.UpdateHeading(1, third);
+
+            bool ok = zoneChanged && !third.IsHeadingLocked && Math.Abs(third.EstimatedHeading) < 0.0001f;
+            Assert("Nav    [Zone change clears heading history]", ok,
+                $"zoneChanged={zoneChanged} locked={third.IsHeadingLocked} heading={third.EstimatedHeading:F4}");
+        }
+
+        private static void TestZoneMismatchStopsFollow()
+        {
+            var input = new RecordingInputEngine();
+            var settings = new BridgeSettings();
+            var controller = new FollowController(input, new NavigationKernel(), settings);
+            SeedForwardBasis(controller, 1, new Vector2(0f, 1f));
+
+            var leader = BuildState();
+            leader.ZoneHash = 10;
+            leader.CoordZ = 20f;
+
+            var follower = BuildState();
+            follower.ZoneHash = 20;
+
+            controller.Update(1, follower, leader, IntPtr.Zero);
+
+            var debug = ReadSlotDebug(controller, 1);
+            bool ok = !debug.HasForwardBasis
+                && input.UpScanCodes.Contains(settings.KeyForward)
+                && input.UpScanCodes.Contains(settings.KeyLeft)
+                && input.UpScanCodes.Contains(settings.KeyBack)
+                && input.UpScanCodes.Contains(settings.KeyRight);
+
+            Assert("Follow [Zone mismatch stops follow]", ok,
+                $"hasBasis={debug.HasForwardBasis} ups=[{string.Join(",", input.UpScanCodes)}]");
         }
 
         private static void TestWindowFilterProcessIdOrder()
@@ -956,10 +512,7 @@ namespace LeaderDecoder
                 ProcessIds = new[] { 303, 101 }
             });
 
-            bool ok = filtered.Count == 2
-                && filtered[0].ProcessId == 303
-                && filtered[1].ProcessId == 101;
-
+            bool ok = filtered.Count == 2 && filtered[0].ProcessId == 303 && filtered[1].ProcessId == 101;
             Assert("Window [PID list preserves order]", ok,
                 $"got [{string.Join(",", filtered.Select(window => window.ProcessId))}]");
         }
@@ -978,10 +531,7 @@ namespace LeaderDecoder
                 Hwnds = new[] { (IntPtr)0x1002, (IntPtr)0x1001 }
             });
 
-            bool ok = filtered.Count == 2
-                && filtered[0].Hwnd == (IntPtr)0x1002
-                && filtered[1].Hwnd == (IntPtr)0x1001;
-
+            bool ok = filtered.Count == 2 && filtered[0].Hwnd == (IntPtr)0x1002 && filtered[1].Hwnd == (IntPtr)0x1001;
             Assert("Window [HWND list preserves order]", ok,
                 $"got [{string.Join(",", filtered.Select(window => RiftWindowService.FormatHwnd(window.Hwnd)))}]");
         }
@@ -1030,45 +580,78 @@ namespace LeaderDecoder
                 $"got [{string.Join(",", slots.Select(slot => slot.Window is not null ? RiftWindowService.FormatHwnd(slot.Window.Hwnd) : $"missing:{RiftWindowService.FormatHwnd(slot.ExpectedHwnd ?? IntPtr.Zero)}"))}]");
         }
 
-        private static void SeedBasis(FollowController controller, int slot, Vector2 forward, Vector2 left)
+        private static void SeedForwardBasis(FollowController controller, int slot, Vector2 forward)
         {
-            var basisField = typeof(FollowController).GetField("_basisStates", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (basisField == null)
-            {
-                throw new InvalidOperationException("Could not find _basisStates field.");
-            }
-
-            var basisStates = (Array)basisField.GetValue(controller)!;
-            object basis = basisStates.GetValue(slot)!;
-            Type basisType = basis.GetType();
-
-            basisType.GetField("Forward", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(basis, forward);
-            basisType.GetField("Left", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(basis, left);
-            basisType.GetField("HasForward", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(basis, true);
-            basisType.GetField("HasLeft", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(basis, true);
+            object slotState = GetSlotState(controller, slot);
+            Type slotStateType = slotState.GetType();
+            slotStateType.GetField("Forward", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(slotState, forward);
+            slotStateType.GetField("HasForwardBasis", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(slotState, true);
         }
 
-        private static (bool HasForward, bool HasLeft) ReadBasisFlags(FollowController controller, int slot)
+        private static void SeedProgress(FollowController controller, int slot, float lastGoalDistance, int worseningTicks, int stallTicks)
         {
-            var basisField = typeof(FollowController).GetField("_basisStates", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (basisField == null)
+            object slotState = GetSlotState(controller, slot);
+            Type slotStateType = slotState.GetType();
+            slotStateType.GetField("LastGoalDistance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(slotState, lastGoalDistance);
+            slotStateType.GetField("ConsecutiveWorseningTicks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(slotState, worseningTicks);
+            slotStateType.GetField("ConsecutiveStallTicks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(slotState, stallTicks);
+        }
+
+        private static SlotDebug ReadSlotDebug(FollowController controller, int slot)
+        {
+            object slotState = GetSlotState(controller, slot);
+            Type slotStateType = slotState.GetType();
+            return new SlotDebug
             {
-                throw new InvalidOperationException("Could not find _basisStates field.");
+                Forward = (Vector2)slotStateType.GetField("Forward", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
+                HasForwardBasis = (bool)slotStateType.GetField("HasForwardBasis", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
+                HasPendingCalibration = slotStateType.GetField("PendingForwardCalibration", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState) is not null,
+                LastGoalDistance = (float)slotStateType.GetField("LastGoalDistance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
+                WorseningTicks = (int)slotStateType.GetField("ConsecutiveWorseningTicks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
+                StallTicks = (int)slotStateType.GetField("ConsecutiveStallTicks", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(slotState)!,
+            };
+        }
+
+        private static object GetSlotState(FollowController controller, int slot)
+        {
+            var slotStatesField = typeof(FollowController).GetField("_slotStates", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (slotStatesField == null)
+            {
+                throw new InvalidOperationException("Could not find _slotStates field.");
             }
 
-            var basisStates = (Array)basisField.GetValue(controller)!;
-            object basis = basisStates.GetValue(slot)!;
-            Type basisType = basis.GetType();
+            var slotStates = (Array)slotStatesField.GetValue(controller)!;
+            return slotStates.GetValue(slot)!;
+        }
 
-            bool hasForward = (bool)basisType.GetField("HasForward", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(basis)!;
-            bool hasLeft = (bool)basisType.GetField("HasLeft", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(basis)!;
-            return (hasForward, hasLeft);
+        private static float NormalizeProtocolHeading(float heading)
+        {
+            float twoPi = (float)(2 * Math.PI);
+            while (heading < 0)
+            {
+                heading += twoPi;
+            }
+
+            while (heading > twoPi)
+            {
+                heading -= twoPi;
+            }
+
+            return heading;
         }
 
         private static GameState BuildState() => new GameState
         {
-            IsValid = true, IsAlive = true, PlayerHP = 255, TargetHP = 0,
-            CoordX = 0, CoordY = 0, CoordZ = 0, RawFacing = 0, ZoneHash = 0
+            IsValid = true,
+            IsAlive = true,
+            PlayerHP = 255,
+            TargetHP = 0,
+            CoordX = 0f,
+            CoordY = 0f,
+            CoordZ = 0f,
+            RawFacing = 0f,
+            ZoneHash = 0,
+            PlayerTag = "TEST",
         };
 
         private sealed class RecordingInputEngine : InputEngine
@@ -1095,6 +678,16 @@ namespace LeaderDecoder
             }
         }
 
+        private sealed class SlotDebug
+        {
+            public Vector2 Forward { get; init; }
+            public bool HasForwardBasis { get; init; }
+            public bool HasPendingCalibration { get; init; }
+            public float LastGoalDistance { get; init; }
+            public int WorseningTicks { get; init; }
+            public int StallTicks { get; init; }
+        }
+
         private static void Assert(string label, bool condition, string failMsg = "")
         {
             if (condition)
@@ -1109,6 +702,7 @@ namespace LeaderDecoder
                 Console.WriteLine($"  ❌ FAIL  {label}  →  {failMsg}");
                 _fail++;
             }
+
             Console.ResetColor();
         }
     }

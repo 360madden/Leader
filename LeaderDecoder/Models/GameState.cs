@@ -23,6 +23,7 @@ namespace LeaderDecoder.Models
         public byte ZoneHash { get; set; }
 
         // Telemetry Data (Raw from Lua)
+        // RawFacing is the encoded movement heading carried by the strip, not a documented idle-facing field.
         public float RawFacing { get; set; }
 
         // Estimated Data (Computed by NavigationKernel)

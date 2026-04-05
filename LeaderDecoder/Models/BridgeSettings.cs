@@ -23,10 +23,10 @@ namespace LeaderDecoder.Models
         public float FollowDistanceMax { get; set; } = 3.5f;
         public float AngleTolerance { get; set; } = 0.15f; 
         
-        // PID-Lite Steering
-        public float TurnP { get; set; } = 0.8f;      // Turn intensity
-        public float TurnD { get; set; } = 0.2f;      // Damping
-        public float TurnRateRadiansPerSecond { get; set; } = 3.25f; // Heading estimate for turn taps
+        // Legacy turn-steering settings retained for settings.json compatibility.
+        public float TurnP { get; set; } = 0.8f;
+        public float TurnD { get; set; } = 0.2f;
+        public float TurnRateRadiansPerSecond { get; set; } = 3.25f;
         public float AssistDistance { get; set; } = 5.0f; // Max distance to trigger interact
 
         // ⌨️ Keybindings (ScanCodes)
@@ -34,8 +34,8 @@ namespace LeaderDecoder.Models
         public byte KeyLeft { get; set; } = 0x1E;    // A
         public byte KeyBack { get; set; } = 0x1F;    // S
         public byte KeyRight { get; set; } = 0x20;   // D
-        public byte KeyTurnLeft { get; set; } = 0x1E;  // A / turn-left fallback
-        public byte KeyTurnRight { get; set; } = 0x20; // D / turn-right fallback
+        public byte KeyTurnLeft { get; set; } = 0x1E;  // Legacy turn-left key; only released during emergency stop
+        public byte KeyTurnRight { get; set; } = 0x20; // Legacy turn-right key; only released during emergency stop
         public byte KeyJump { get; set; } = 0x39;    // Space
         public byte KeyMount { get; set; } = 0x32;   // M
         public byte KeyInteract { get; set; } = 0x21; // F
