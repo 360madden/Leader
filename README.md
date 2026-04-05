@@ -239,8 +239,30 @@ Capability status keeps:
 
 - slash registration state and active primary slash command
 - runtime / transition / export / render-health module readiness
+- mini status-badge readiness
 - renderer / diag / dump subsystem readiness
 - bounded capability-change history
+
+### Addon-Side Status Badge
+
+The addon now includes a tiny optional in-game badge for quick client-health checks without opening the full diagnostic overlay.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader badge` | Toggle the mini status badge |
+| `/leader badge on` | Force the badge visible |
+| `/leader badge off` | Hide the badge |
+| `/leader badge status` | Print whether the badge is currently visible |
+
+The badge shows:
+
+- overall state (`OK`, `WAIT`, or `WARN`)
+- packet activity
+- render write count
+- transition reason
+- current player tag
 
 ### Window Resize Helper
 

@@ -49,6 +49,7 @@ local function PrintHelp()
     print("  " .. prefix .. " export           — Show debug export snapshot status")
     print("  " .. prefix .. " render           — Show renderer health status")
     print("  " .. prefix .. " capabilities     — Show addon capability status")
+    print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
@@ -113,6 +114,35 @@ local function HandleDumpCommand(params)
     end
 end
 
+local function HandleBadgeCommand(params)
+    local subcommand = string.lower(string.match(params or "", "^%s*(.-)%s*$"))
+
+    if subcommand == "" or subcommand == "toggle" then
+        local isVisible = Private.StatusBadge and Private.StatusBadge.Toggle and Private.StatusBadge.Toggle()
+        print("🛰️ Leader: status badge " .. (isVisible and "ON" or "OFF"))
+    elseif subcommand == "on" then
+        if Private.StatusBadge and Private.StatusBadge.SetVisible then
+            Private.StatusBadge.SetVisible(true)
+        end
+        print("🛰️ Leader: status badge ON")
+    elseif subcommand == "off" then
+        if Private.StatusBadge and Private.StatusBadge.SetVisible then
+            Private.StatusBadge.SetVisible(false)
+        end
+        print("🛰️ Leader: status badge OFF")
+    elseif subcommand == "status" then
+        if Private.StatusBadge and Private.StatusBadge.PrintStatus then
+            Private.StatusBadge.PrintStatus()
+        end
+    else
+        print("🛰️ Leader: badge commands are on | off | toggle | status")
+    end
+
+    if Private.RuntimeStatus and Private.RuntimeStatus.RecordCommand then
+        Private.RuntimeStatus.RecordCommand("badge", subcommand ~= "" and subcommand or "toggle")
+    end
+end
+
 local function HandleSlashCommand(_, params)
     params = string.lower(string.match(params or "", "^%s*(.-)%s*$"))
     local command = string.match(params, "^(%S+)") or ""
@@ -142,6 +172,8 @@ local function HandleSlashCommand(_, params)
         if Private.CapabilityStatus and Private.CapabilityStatus.PrintStatus then
             Private.CapabilityStatus.PrintStatus()
         end
+    elseif command == "badge" then
+        HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "dump" then
         HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "help" or command == "" then
@@ -228,6 +260,9 @@ local function UpdateTelemetry()
         if Private.DebugExport and Private.DebugExport.SyncNoPacket then
             Private.DebugExport.SyncNoPacket()
         end
+        if Private.StatusBadge and Private.StatusBadge.Refresh then
+            Private.StatusBadge.Refresh()
+        end
         return
     end
 
@@ -283,6 +318,10 @@ local function UpdateTelemetry()
     if Private.DebugExport and Private.DebugExport.Sync then
         Private.DebugExport.Sync(packet)
     end
+
+    if Private.StatusBadge and Private.StatusBadge.Refresh then
+        Private.StatusBadge.Refresh()
+    end
 end
 
 --- Initializes the telemetry engine.
@@ -318,6 +357,12 @@ local function Init()
     Private.Renderer.Init()
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
         Private.CapabilityStatus.MarkModuleReady("renderer", true)
+    end
+    if Private.StatusBadge and Private.StatusBadge.Create then
+        Private.StatusBadge.Create()
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("statusBadge", Private.StatusBadge and true or false)
     end
     Private.DiagUI.Create()
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then

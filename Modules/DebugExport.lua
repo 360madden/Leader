@@ -114,6 +114,7 @@ local function UpdateFromCapabilities(export)
         debugExportReady = status.debugExportReady,
         renderHealthReady = status.renderHealthReady,
         rendererReady = status.rendererReady,
+        statusBadgeReady = status.statusBadgeReady,
         diagReady = status.diagReady,
         dumpReady = status.dumpReady,
         historyCount = status.historyCount,
