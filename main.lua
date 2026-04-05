@@ -45,6 +45,7 @@ local function PrintHelp()
     print("🛰️ Leader Commands:")
     print("  " .. prefix .. " diag             — Toggle telemetry audit overlay")
     print("  " .. prefix .. " status           — Show runtime heartbeat status")
+    print("  " .. prefix .. " transition       — Show loading/transition status")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
@@ -122,6 +123,10 @@ local function HandleSlashCommand(_, params)
         if Private.RuntimeStatus and Private.RuntimeStatus.PrintStatus then
             Private.RuntimeStatus.PrintStatus()
         end
+    elseif command == "transition" then
+        if Private.TransitionState and Private.TransitionState.PrintStatus then
+            Private.TransitionState.PrintStatus()
+        end
     elseif command == "dump" then
         HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "help" or command == "" then
@@ -192,6 +197,9 @@ local function UpdateTelemetry()
         if Private.RuntimeStatus and Private.RuntimeStatus.RecordNoPacket then
             Private.RuntimeStatus.RecordNoPacket(true, IsDumpEnabled())
         end
+        if Private.TransitionState and Private.TransitionState.RecordNoPacket then
+            Private.TransitionState.RecordNoPacket()
+        end
         return
     end
 
@@ -231,6 +239,10 @@ local function UpdateTelemetry()
     if Private.RuntimeStatus and Private.RuntimeStatus.RecordPacket then
         Private.RuntimeStatus.RecordPacket(packet, IsDumpEnabled())
     end
+
+    if Private.TransitionState and Private.TransitionState.RecordPacket then
+        Private.TransitionState.RecordPacket(packet)
+    end
 end
 
 --- Initializes the telemetry engine.
@@ -238,6 +250,9 @@ local function Init()
     LeaderConfig = LeaderConfig or {}
     if Private.RuntimeStatus and Private.RuntimeStatus.InitSession then
         Private.RuntimeStatus.InitSession()
+    end
+    if Private.TransitionState and Private.TransitionState.Init then
+        Private.TransitionState.Init()
     end
     Private.Renderer.Init()
     Private.DiagUI.Create()

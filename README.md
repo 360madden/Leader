@@ -170,6 +170,22 @@ Use:
 
 Runtime status keeps a bounded event log plus fields such as the current player tag, zone hash, last valid packet time, nil-packet streak, dump state, and active slash command.
 
+### Addon-Side Transition State
+
+The addon now also tracks likely loading / transition periods in `LeaderConfig.transition` so helper tools can separate:
+
+- repeated nil-packet periods
+- zone-change stabilization
+- recovered telemetry after a dead/empty stretch
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader transition` | Print the current transition/loading summary |
+
+Transition state keeps a bounded history plus counts for transition activations and recoveries, along with the current reason, zone hash, and nil-packet streak.
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:
