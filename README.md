@@ -22,7 +22,7 @@ Transmits real-time 3D spatial telemetry from the Leader game instance to up to 
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Telemetry Protocol v1.1
+## Telemetry Protocol v1.2
 
 | Pixel | X offset | R | G | B | Description |
 |-------|----------|---|---|---|-------------|
@@ -32,7 +32,7 @@ Transmits real-time 3D spatial telemetry from the Leader game instance to up to 
 | 3 | 12 | CoordY low | CoordY mid | CoordY high | **Y (elevation)** |
 | 4 | 16 | CoordZ low | CoordZ mid | CoordZ high | **Z coordinate** |
 | 5 | 20 | heading low | heading high | zone hash | **Movement heading + Zone** |
-| 6 | 24 | target ID R | target ID G | target ID B | **Target hash** |
+| 6 | 24 | player tag R | player tag G | player tag B | **Player identity tag** |
 
 **Coordinate encoding:** `n = floor(val × 10) + 8388608` — range ±838 860 m, 0.1 m precision  
 **Heading encoding:** `n = floor(radian × 10000)` — range 0 → 2π, ~0.0001 rad precision. This is the leader's derived travel heading from recent coordinate deltas, not a documented unit-facing field.  
@@ -57,7 +57,7 @@ Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0).
 
 ### 3. In-Game Setup
 - Load into RIFT with the **Leader** addon enabled.  
-- The 28×4 pixel strip will appear in the **top-left corner** of every instance.  
+- The 56×8 pixel strip will appear in the **top-left corner** of every instance.  
 - Type `/leader diag` to toggle the real-time telemetry audit overlay. If `/leader` is unavailable because another addon already registered it, use `/leaderbridge diag` instead.
 
 ### 4. Bridge Controls
@@ -65,7 +65,7 @@ Requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0).
 | Key | Action |
 |-----|--------|
 | `T` | Toggle **Follow / Pursuit** for all followers |
-| `L` | Toggle **CSV telemetry logging** to `debug/telemetry_log.csv` |
+| `L` | Toggle **decoder-side CSV telemetry logging** to `debug/telemetry_log.csv` |
 | `S` | Save a **diagnostic snapshot** of the current optical strip |
 
 ---
@@ -123,7 +123,7 @@ All diagnostic output goes to `debug/` next to `LeaderDecoder.exe`:
 
 | File | Description |
 |------|-------------|
-| `debug/telemetry_log.csv` | Per-frame X,Y,Z,Heading log (toggle with `L`) |
+| `debug/telemetry_log.csv` | Per-frame X,Y,Z,Heading log written by the decoder (toggle with `L`) |
 | `debug/sync_failure_*.png` | Auto-saved when Pixel 0 sync is lost |
 | `debug/manual_snap_*.png`  | Manual snapshots saved with `S` |
 
@@ -140,17 +140,18 @@ Use these helper launchers when you want to validate the strip without changing 
 
 ### Addon-Side Dump Logging
 
-The addon can now persist a small rolling telemetry buffer into its SavedVariables file for helper-app consumption:
+The addon can persist a small rolling telemetry buffer into its SavedVariables file for helper-app consumption:
 
 | Control | Purpose |
 |---------|---------|
 | `/leader dump status` | Show whether dump logging is enabled and how many entries are buffered |
 | `/leader dump on` | Enable telemetry dump buffering |
 | `/leader dump off` | Disable telemetry dump buffering |
+| `/leader dump toggle` | Toggle telemetry dump buffering |
 | `/leader dump clear` | Clear buffered dump entries |
 | `/leader dump interval <seconds>` | Adjust the dump throttle interval |
 
-Buffered samples are stored in the character SavedVariables file alongside `LeaderConfig` and are intended for offline/helper-app correlation, not live file IO from the addon.
+Buffered samples are stored in the character SavedVariables file alongside `LeaderConfig` and are intended for offline/helper-app correlation, not live file IO from the addon. Use `/leader dump toggle` to switch buffering on or off.
 
 ### Window Resize Helper
 

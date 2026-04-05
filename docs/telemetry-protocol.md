@@ -1,4 +1,4 @@
-## Leader Telemetry Protocol v1.1
+## Leader Telemetry Protocol v1.2
 
 ### Strip Geometry
 - **Width**: 56 px  |  **Height**: 8 px  |  **Pixel block size**: 8×8 px  
@@ -18,8 +18,8 @@
 | 4 | 32–39 | RGB | CoordZ | 24-bit packed: `floor(z×10)+8388608` |
 | 5 | 40–47 | R | facing low byte | `n = floor(radians×10000)` |
 | 5 | 40–47 | G | facing high byte | `n >> 8` |
-| 5 | 40–47 | B | zone hash | Sum of zone string bytes mod 256 |
-| 6 | 48–55 | RGB | target hash | Last 6 hex chars of unit ID |
+| 5 | 40–47 | B | zone hash | Stable 0-255 hash of the zone descriptor (name + ID when available) |
+| 6 | 48–55 | RGB | player tag | 4-character uppercase identifier derived from the player name |
 
 ### Flags Bitfield (Pixel 1, B Channel)
 | Bit | Mask | Meaning |

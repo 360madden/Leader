@@ -4,9 +4,9 @@ local Encoder = {}
 local TWO_PI = math.pi * 2
 
 --[[
--- LEADER TELEMETRY ENCODER v1.1
+-- LEADER TELEMETRY ENCODER v1.2
 -- High-precision 24-bit packing for spatial coordinates and state flags.
--- Protocol version 1.1 — matches TelemetryService.cs decode logic exactly.
+-- Protocol version 1.2 — matches TelemetryService.cs decode logic exactly.
 --]]
 
 -- ──────────────────────────────────────────────────────────────────────────────

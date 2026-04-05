@@ -111,6 +111,7 @@ internal static class Program
         var explicitFiles = new List<string>();
         var logFiles = new List<string>();
         var imageFiles = new List<string>();
+        string? savedRoot = FindSavedInterfaceRoot(repoRoot);
 
         foreach (string relativePath in new[]
         {
@@ -124,6 +125,14 @@ internal static class Program
             if (File.Exists(path))
             {
                 explicitFiles.Add(path);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(savedRoot) && Directory.Exists(savedRoot))
+        {
+            foreach (string file in EnumerateSavedAddonFiles(savedRoot))
+            {
+                explicitFiles.Add(file);
             }
         }
 
@@ -169,6 +178,22 @@ internal static class Program
 
         logFiles = logFiles.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
         return (explicitFiles, logFiles, imageFiles);
+    }
+
+    private static IEnumerable<string> EnumerateSavedAddonFiles(string savedRoot)
+    {
+        foreach (string addonSettings in Directory.EnumerateFiles(savedRoot, "AddonSettings.lua", SearchOption.AllDirectories))
+        {
+            yield return addonSettings;
+        }
+
+        foreach (string leaderSavedVariables in Directory.EnumerateFiles(savedRoot, "Leader.lua", SearchOption.AllDirectories)
+            .Where(path => path.IndexOf($"{Path.DirectorySeparatorChar}SavedVariables{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) >= 0)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            yield return leaderSavedVariables;
+        }
     }
 
     private static void CopyFiles(
@@ -238,7 +263,7 @@ internal static class Program
             return false;
         }
 
-        string relativePath = Path.GetRelativePath(repoRoot, sourcePath);
+        string relativePath = BuildBundleRelativePath(repoRoot, sourcePath);
         string destinationPath = Path.Combine(artifactsDir, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
         File.Copy(sourcePath, destinationPath, overwrite: true);
@@ -254,6 +279,35 @@ internal static class Program
         });
 
         return true;
+    }
+
+    private static string BuildBundleRelativePath(string repoRoot, string sourcePath)
+    {
+        string fullRepoRoot = Path.GetFullPath(repoRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string fullSourcePath = Path.GetFullPath(sourcePath);
+
+        if (fullSourcePath.StartsWith(fullRepoRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fullSourcePath, fullRepoRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetRelativePath(fullRepoRoot, fullSourcePath);
+        }
+
+        string root = Path.GetPathRoot(fullSourcePath) ?? string.Empty;
+        string rootLabel = string.IsNullOrWhiteSpace(root)
+            ? "root"
+            : root.Length >= 2 && root[1] == ':'
+                ? $"{char.ToUpperInvariant(root[0])}_"
+                : root.Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    .Replace(Path.DirectorySeparatorChar, '_')
+                    .Replace(Path.AltDirectorySeparatorChar, '_');
+
+        string remainder = fullSourcePath[root.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(remainder))
+        {
+            remainder = Path.GetFileName(fullSourcePath);
+        }
+
+        return Path.Combine("external", rootLabel, remainder);
     }
 
     private static List<WindowRecord> BuildWindowInventory()
@@ -300,6 +354,61 @@ internal static class Program
         }
 
         return Environment.CurrentDirectory;
+    }
+
+    private static string? FindSavedInterfaceRoot(string repoRoot)
+    {
+        string repoDirectory = Path.GetFullPath(repoRoot);
+        var directory = new DirectoryInfo(repoDirectory);
+        while (directory is not null)
+        {
+            string candidate = Path.Combine(directory.FullName, "Saved");
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        foreach (string baseDirectory in new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        })
+        {
+            if (string.IsNullOrWhiteSpace(baseDirectory))
+            {
+                continue;
+            }
+
+            string candidate = Path.Combine(baseDirectory, "RIFT", "Interface", "Saved");
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        foreach (string? oneDriveRoot in new[]
+        {
+            Environment.GetEnvironmentVariable("OneDrive"),
+            Environment.GetEnvironmentVariable("OneDriveCommercial"),
+            Environment.GetEnvironmentVariable("OneDriveConsumer"),
+        })
+        {
+            if (string.IsNullOrWhiteSpace(oneDriveRoot))
+            {
+                continue;
+            }
+
+            string candidate = Path.Combine(oneDriveRoot, "Documents", "RIFT", "Interface", "Saved");
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static string ResolvePath(string root, string path) =>

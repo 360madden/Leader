@@ -3,7 +3,7 @@ local addon, Private = ...
 local Gatherer = {}
 
 --[[
--- LEADER TELEMETRY GATHERER v1.1
+-- LEADER TELEMETRY GATHERER v1.2
 -- High-frequency RIFT Inspect API polling with robust error handling.
 -- Returns a fully populated telemetry packet or nil on failure.
 --
@@ -14,7 +14,7 @@ local Gatherer = {}
 -- travel speed.
 --]]
 
--- Zone hash: computes a stable 0-255 byte from the zone name string.
+-- Zone hash: computes a stable 0-255 byte from the zone descriptor (name + ID when available).
 local function HashZone(zoneStr)
     if not zoneStr then return 0 end
     local s = tostring(zoneStr)
@@ -23,6 +23,19 @@ local function HashZone(zoneStr)
         h = (h * 31 + string.byte(s, i)) % 256
     end
     return h
+end
+
+local function ClampByte(value)
+    value = tonumber(value) or 0
+    if value < 0 then
+        return 0
+    end
+
+    if value > 255 then
+        return 255
+    end
+
+    return math.floor(value)
 end
 
 local motionState = {
@@ -283,10 +296,10 @@ function Gatherer.GetPacket()
 
     -- Normalized HP [0-255]
     if p.health and p.healthMax and p.healthMax > 0 then
-        packet.playerHP = math.floor((p.health / p.healthMax) * 255)
+        packet.playerHP = ClampByte((p.health / p.healthMax) * 255)
     end
     if t and t.health and t.healthMax and t.healthMax > 0 then
-        packet.targetHP = math.floor((t.health / t.healthMax) * 255)
+        packet.targetHP = ClampByte((t.health / t.healthMax) * 255)
     end
 
     -- Flags bitfield (Pixel 1, B Channel):

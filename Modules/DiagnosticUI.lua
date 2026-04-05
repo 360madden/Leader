@@ -2,10 +2,10 @@
 local addon, Private = ...
 
 --[[
--- LEADER TELEMETRY AUDIT UI v1.1
+-- LEADER TELEMETRY AUDIT UI v1.2
 -- Toggleable on-screen overlay showing live encoded values.
 -- Type the registered Leader slash command with "diag" to toggle.
--- Aligned with Gatherer.lua v1.1 packet schema.
+-- Aligned with Gatherer.lua v1.2 packet schema.
 --]]
 
 local DiagUI = {}
@@ -81,6 +81,13 @@ function DiagUI.Update(packet)
         isCombat, hasTarget,
         isMoving, isAlive
     ))
+end
+
+--- Clears the displayed values when no valid packet is available.
+function DiagUI.Clear()
+    if not _text then return end
+
+    _text:SetText("Waiting for telemetry...")
 end
 
 --- Toggles the panel visibility.

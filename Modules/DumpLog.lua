@@ -48,7 +48,7 @@ local function EnsureConfig()
         dump.entries = {}
     end
     if dump.schemaVersion == nil then
-        dump.schemaVersion = 1
+        dump.schemaVersion = 2
     end
     if dump.lastSeq == nil then
         dump.lastSeq = 0
@@ -159,7 +159,7 @@ function DumpLog.GetStatus()
         maxEntries = tonumber(dump.maxEntries) or DEFAULT_MAX_ENTRIES,
         entryCount = #(dump.entries or {}),
         lastSeq = tonumber(dump.lastSeq) or 0,
-        schemaVersion = tonumber(dump.schemaVersion) or 1,
+        schemaVersion = tonumber(dump.schemaVersion) or 2,
     }
 end
 
@@ -180,6 +180,7 @@ function DumpLog.PrintHelp(commandPrefix)
     print("  " .. commandPrefix .. " dump status   — show dump-log status")
     print("  " .. commandPrefix .. " dump on       — enable telemetry dumping")
     print("  " .. commandPrefix .. " dump off      — disable telemetry dumping")
+    print("  " .. commandPrefix .. " dump toggle   — toggle telemetry dumping")
     print("  " .. commandPrefix .. " dump clear    — clear recent dump entries")
     print("  " .. commandPrefix .. " dump interval <seconds> — set throttle interval (optional)")
 end

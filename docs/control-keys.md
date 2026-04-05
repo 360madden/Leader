@@ -44,7 +44,7 @@ These keys are intercepted globally by the `GlobalHotkeyService.cs` thread, mean
 
 - `ScrollLock`: **Toggle Pursuit**. Globally pauses/resumes the Follow & Steer logic. (Useful for pausing followers when you need to walk the leader through a tight door).
 - `T`: Console-level toggle for Pursuit (Only works if the Bridge terminal is focused).
-- `L`: Console-level toggle for CSV Telemetry Logging.
+- `L`: Console-level toggle for decoder-side CSV telemetry logging.
 - `S`: Save a manual diagnostic `.PNG` snapshot of the telemetry strip for all active windows.
 - `R`: Hot-reload the `settings.json` config variables (allows tuning PD steering rates live).
 

@@ -2,7 +2,7 @@
 local addon, Private = ...
 
 --[[
--- LEADER TELEMETRY ENGINE v1.1
+-- LEADER TELEMETRY ENGINE v1.2
 -- High-frequency telemetry orchestration for machine-vision multiboxing.
 -- Orchestrates data gathering, encoding, and optical rendering.
 --]]
@@ -47,6 +47,7 @@ local function PrintHelp()
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
     print("  " .. prefix .. " dump off         — Disable telemetry dumping")
+    print("  " .. prefix .. " dump toggle      — Toggle telemetry dumping")
     print("  " .. prefix .. " dump clear       — Clear recent dump entries")
     print("  " .. prefix .. " dump interval X  — Set dump throttle interval in seconds")
 end
@@ -65,6 +66,10 @@ local function HandleDumpCommand(params)
     elseif subcommand == "off" then
         Private.DumpLog.SetEnabled(false)
         print("🛰️ Leader: dump logging OFF")
+        Private.DumpLog.PrintStatus()
+    elseif subcommand == "toggle" then
+        local enabled = Private.DumpLog.Toggle()
+        print("🛰️ Leader: dump logging " .. (enabled and "ON" or "OFF"))
         Private.DumpLog.PrintStatus()
     elseif subcommand == "clear" then
         Private.DumpLog.Clear()
@@ -125,6 +130,16 @@ local function PrintLoadBanner()
     )
 end
 
+local function ClearTelemetryFrame()
+    for i = 0, 6 do
+        Private.Renderer.SetPixel(i, 0, 0, 0)
+    end
+
+    if Private.DiagUI and Private.DiagUI.Clear then
+        Private.DiagUI.Clear()
+    end
+end
+
 --- Orchestrates a single telemetry update.
 local function UpdateTelemetry()
     Private.Renderer.SyncLayout()
@@ -140,7 +155,10 @@ local function UpdateTelemetry()
 
     -- 1. Gather raw game data (guarded: returns nil during loading screens)
     local packet = Private.Gatherer.GetPacket()
-    if not packet then return end
+    if not packet then
+        ClearTelemetryFrame()
+        return
+    end
 
     -- 2. Pixel 0: Sync beacon (Static Magenta: R=1, G=0, B=1)
     Private.Renderer.SetPixel(0, 1, 0, 1)
