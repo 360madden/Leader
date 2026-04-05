@@ -6,9 +6,9 @@ set "LAUNCHER=%~nx0"
 set "EXIT_CODE=0"
 
 title 🛰️ Leader Input Verifier
-echo ============================================
+echo =============================================
 echo   🛰️ LEADER: BUILDING INPUT VERIFIER...
-echo ============================================
+echo =============================================
 
 pushd "%ROOT%LeaderInputVerifier"
 if errorlevel 1 (
@@ -38,9 +38,9 @@ if %EXIT_CODE% NEQ 0 (
 )
 
 echo.
-echo ============================================
-echo   🧪 LAUNCHING INPUT VERIFIER...
-echo ============================================
+echo =============================================
+echo   ⌨️ LAUNCHING INPUT VERIFIER...
+echo =============================================
 
 bin\Release\net9.0\LeaderInputVerifier.exe %*
 set "EXIT_CODE=%ERRORLEVEL%"

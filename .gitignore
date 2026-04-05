@@ -23,4 +23,5 @@ desktop.ini
 *.tmp
 debug-live/
 debug/
+trace-bundles/
 settings.json

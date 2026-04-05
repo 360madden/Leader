@@ -135,6 +135,7 @@ Use these helper launchers when you want to validate the strip without changing 
 |--------|---------|
 | `run_live_inspector.bat` | Captures the live top-left `56x8` region from visible RIFT windows and reports sync/decode status plus saved/live window geometry context; supports targeting by `--pid`, `--hwnd`, and `--title-contains` |
 | `run_input_probe.bat` | Sends deterministic background key probes to explicit RIFT clients by `--pid`, `--pids`, `--hwnd`, or `--hwnds`, with optional strip inspection before and after the probe |
+| `run_input_verifier.bat` | Verifies whether configured controller actions such as forward/back/left/right produce detectable strip/coordinate changes, with action-aware before/after classification and CSV result logging |
 | `run_screenshot_inspector.bat` | Inspects the latest RIFT screenshot, or a chosen image path, for the Leader strip |
 
 ### Window Resize Helper
@@ -148,6 +149,14 @@ Use these helper launchers when you want to move between known-good live client 
 | `resize_640x360.bat` | One-click resize to `640x360` plus immediate strip validation |
 | `resize_1280x720.bat` | One-click resize to `1280x720` plus immediate strip validation |
 | `resize_half_current.bat` | One-click dynamic half-size resize from the current live client size |
+
+### Trace Bundle Helper
+
+Use this helper when you want a single artifact bundle for a bad run:
+
+| Helper | Purpose |
+|--------|---------|
+| `run_trace_bundle.bat` | Creates a timestamped trace bundle containing current logs, helper debug artifacts, settings snapshots, a live window inventory, and a bounded set of recent images for later review |
 
 Current field notes live in:
 - `docs/non-invasive-validation.md`

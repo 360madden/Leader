@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO;
 using System.Text.Json;
 using LeaderDecoder.Models;
 using LeaderDecoder.Services;
@@ -10,285 +9,362 @@ internal static class Program
 {
     private const int DefaultHoldMs = 120;
     private const int DefaultWaitMs = 250;
-    private const float MovementThreshold = 0.12f;
-    private const string ResultLogName = "input_verifier_results.csv";
+    private const string DefaultSequence = "forward,backward,left,right";
+
+    private static readonly Dictionary<string, Func<BridgeSettings, byte>> Actions =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["forward"] = s => s.KeyForward,
+            ["backward"] = s => s.KeyBack,
+            ["back"] = s => s.KeyBack,
+            ["left"] = s => s.KeyLeft,
+            ["strafeleft"] = s => s.KeyLeft,
+            ["right"] = s => s.KeyRight,
+            ["straferight"] = s => s.KeyRight,
+            ["jump"] = s => s.KeyJump,
+            ["mount"] = s => s.KeyMount,
+            ["interact"] = s => s.KeyInteract,
+        };
 
     private static int Main(string[] args)
     {
-        if (!TryParseOptions(args, out var options, out string? error))
+        var diag = new DiagnosticService();
+
+        try
         {
-            Console.Error.WriteLine(error);
-            Console.Error.WriteLine();
-            PrintUsage();
-            return 1;
-        }
-
-        if (options.ShowHelp)
-        {
-            PrintUsage();
-            return 0;
-        }
-
-        Console.Title = "Leader Input Verifier";
-        Console.WriteLine("============================================================");
-        Console.WriteLine("Leader Input Verifier");
-        Console.WriteLine("Verifies whether configured controller actions produce detectable telemetry changes.");
-        Console.WriteLine("============================================================");
-
-        var settings = LoadSettings(options.SettingsPath, out string settingsSource);
-        var capture = new CaptureEngine();
-        var input = new InputEngine();
-        string debugDir = Path.Combine(Environment.CurrentDirectory, "debug");
-        string resultLogPath = Path.Combine(debugDir, ResultLogName);
-        EnsureResultLog(debugDir, resultLogPath);
-
-        var allWindows = RiftWindowService.FindRiftWindows();
-        var filteredWindows = RiftWindowService.FilterWindows(allWindows, BuildFilter(options));
-
-        Console.WriteLine($"Detected RIFT windows: {allWindows.Count}");
-        Console.WriteLine($"Settings source: {settingsSource}");
-        if (HasExplicitFilter(options))
-        {
-            Console.WriteLine($"Filtered RIFT windows: {filteredWindows.Count}");
-        }
-
-        PrintWindowList(filteredWindows);
-
-        if (filteredWindows.Count == 0)
-        {
-            Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
-            return 1;
-        }
-
-        if (options.ListOnly && !options.HasActionIntent)
-        {
-            return 0;
-        }
-
-        if (!options.HasActionIntent)
-        {
-            Console.WriteLine();
-            Console.WriteLine("No action was supplied.");
-            PrintUsage();
-            return 1;
-        }
-
-        var selectedWindows = SelectWindows(filteredWindows, options, out error);
-        if (!string.IsNullOrWhiteSpace(error))
-        {
-            Console.Error.WriteLine(error);
-            return 1;
-        }
-
-        var actions = BuildActionPlan(options, settings, out error);
-        if (!string.IsNullOrWhiteSpace(error))
-        {
-            Console.Error.WriteLine(error);
-            return 1;
-        }
-
-        Console.WriteLine();
-        Console.WriteLine(BuildIntentSummary(options, selectedWindows.Count, actions, settingsSource));
-
-        bool anyFailure = false;
-        int rowIndex = 0;
-
-        foreach (var window in selectedWindows)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"[{window.ProcessId}] {RiftWindowService.FormatIdentity(window)}");
-            Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
-
-            foreach (var action in actions)
+            if (!TryParseOptions(args, out var options, out string? error))
             {
-                rowIndex++;
-                var before = CaptureState(capture, window.Hwnd);
-                ExecuteAction(input, window.Hwnd, action, options.HoldMs);
+                Console.Error.WriteLine(error);
+                Console.Error.WriteLine();
+                PrintUsage();
+                return 1;
+            }
 
-                if (options.WaitMs > 0)
+            if (options.Help)
+            {
+                PrintUsage();
+                return 0;
+            }
+
+            string repoRoot = FindRepoRoot();
+            BridgeSettings settings = LoadSettings(repoRoot, options.SettingsPath, diag);
+
+            var capture = new CaptureEngine(diag);
+            var input = new InputEngine(diag);
+
+            var windows = RiftWindowService.FilterWindows(RiftWindowService.FindRiftWindows(), BuildFilter(options));
+            Console.WriteLine("============================================================");
+            Console.WriteLine("Leader Input Verifier");
+            Console.WriteLine("============================================================");
+            Console.WriteLine($"Detected RIFT windows: {windows.Count}");
+
+            if (options.ListOnly)
+            {
+                PrintWindows(windows);
+                return 0;
+            }
+
+            if (windows.Count == 0)
+            {
+                Console.Error.WriteLine("No matching live RIFT windows with a main handle were found.");
+                return 1;
+            }
+
+            var selected = SelectWindows(windows, options, out error);
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                Console.Error.WriteLine(error);
+                return 1;
+            }
+
+            IReadOnlyList<string> actions = ResolveActions(options, out error);
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                Console.Error.WriteLine(error);
+                return 1;
+            }
+
+            string debugDir = Path.Combine(repoRoot, "LeaderInputVerifier", "debug");
+            Directory.CreateDirectory(debugDir);
+            string resultsPath = Path.Combine(debugDir, "input_verifier_results.csv");
+            EnsureHeader(resultsPath);
+
+            Console.WriteLine();
+            Console.WriteLine($"Target={selected.Count} window(s) | Actions={string.Join("+", actions)} | HoldMs={options.HoldMs} | WaitMs={options.WaitMs}");
+            Console.WriteLine($"Settings={options.SettingsPath ?? Path.Combine("..", "LeaderDecoder", "settings.json")}");
+            Console.WriteLine($"Results={resultsPath}");
+
+            int verified = 0;
+            int changed = 0;
+            int invalid = 0;
+
+            foreach (string action in actions)
+            {
+                byte key = ResolveKey(settings, action);
+                if (key == 0)
                 {
-                    Thread.Sleep(options.WaitMs);
+                    Console.Error.WriteLine($"Action '{action}' resolved to scan code 0 and cannot be sent.");
+                    return 1;
                 }
 
-                var after = CaptureState(capture, window.Hwnd);
-                var result = Classify(before, after, action, MovementThreshold);
-
-                AppendResult(resultLogPath, new ResultRow
+                foreach (var window in selected)
                 {
-                    Timestamp = DateTime.Now,
-                    WindowLabel = RiftWindowService.FormatCompactIdentity(window),
-                    ActionLabel = action.Label,
-                    ScanCode = action.ScanCode,
-                    BeforeValid = before.State.IsValid,
-                    AfterValid = after.State.IsValid,
-                    BeforeX = before.State.CoordX,
-                    BeforeZ = before.State.CoordZ,
-                    AfterX = after.State.CoordX,
-                    AfterZ = after.State.CoordZ,
-                    Delta2D = result.Delta2D,
-                    Status = result.Status,
-                    Notes = result.Notes,
-                });
+                    var before = Capture(capture, window.Hwnd);
+                    if (!before.State.IsValid)
+                    {
+                        invalid++;
+                    }
 
-                Console.WriteLine(
-                    $"    {rowIndex,2}. {action.Label,-10} | {result.Status,-15} | " +
-                    $"Δ={result.Delta2D,5:F2} | Before={FormatStateShort(before)} | After={FormatStateShort(after)}");
+                    Console.WriteLine();
+                    Console.WriteLine($"[{window.ProcessId}] {RiftWindowService.FormatCompactIdentity(window)}");
+                    Console.WriteLine($"  Action: {action} | Key=0x{key:X2}");
+                    Console.WriteLine($"  Before: {StripInspector.FormatStateSummary(before.State)}");
 
-                if (result.Status == "InvalidStrip")
-                {
-                    anyFailure = true;
+                    input.TapScanCode(window.Hwnd, key, options.HoldMs);
+                    Thread.Sleep(options.WaitMs);
+
+                    var after = Capture(capture, window.Hwnd);
+                    if (!after.State.IsValid)
+                    {
+                        invalid++;
+                    }
+
+                    var classification = Classify(action, before.State, after.State, out float delta, out string notes);
+                    if (classification is "movement_observed" or "state_changed")
+                    {
+                        changed++;
+                    }
+
+                    verified++;
+                    Console.WriteLine($"  After:  {StripInspector.FormatStateSummary(after.State)}");
+                    Console.WriteLine($"  Result: {classification} | ΔXY={delta:F2} | Notes={notes}");
+
+                    AppendRow(resultsPath, new InputRow
+                    {
+                        Timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
+                        Window = RiftWindowService.FormatIdentity(window),
+                        Action = action,
+                        Key = $"0x{key:X2}",
+                        BeforeValid = before.State.IsValid,
+                        AfterValid = after.State.IsValid,
+                        BeforeX = before.State.CoordX,
+                        BeforeY = before.State.CoordY,
+                        BeforeZ = before.State.CoordZ,
+                        AfterX = after.State.CoordX,
+                        AfterY = after.State.CoordY,
+                        AfterZ = after.State.CoordZ,
+                        DistanceDelta = delta,
+                        BeforeMoving = before.State.IsMoving,
+                        AfterMoving = after.State.IsMoving,
+                        BeforeMounted = before.State.IsMounted,
+                        AfterMounted = after.State.IsMounted,
+                        BeforeHasTarget = before.State.HasTarget,
+                        AfterHasTarget = after.State.HasTarget,
+                        Result = classification,
+                        Notes = notes,
+                    });
                 }
             }
-        }
 
-        Console.WriteLine();
-        Console.WriteLine($"Result log: {resultLogPath}");
-        return anyFailure ? 1 : 0;
+            Console.WriteLine();
+            Console.WriteLine("============================================================");
+            Console.WriteLine($"Verified steps: {verified}");
+            Console.WriteLine($"Changed steps:   {changed}");
+            Console.WriteLine($"Invalid strips:  {invalid}");
+            Console.WriteLine("============================================================");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            diag.LogToolFailure(
+                source: "LeaderInputVerifier",
+                operation: "UnhandledException",
+                detail: "Input verifier crashed.",
+                context: string.Join(" ", args),
+                ex: ex,
+                dedupeKey: "input-verifier-unhandled",
+                throttleSeconds: 1.0);
+            Console.Error.WriteLine($"Unhandled error: {ex.Message}");
+            return 1;
+        }
     }
 
-    private static CaptureSnapshot CaptureState(CaptureEngine capture, IntPtr hwnd)
+    private static (StripAnalysis Analysis, GameState State) Capture(CaptureEngine capture, IntPtr hwnd)
     {
         using var bmp = capture.CaptureRegion(hwnd, StripInspector.StripWidth, StripInspector.StripHeight);
         var analysis = StripInspector.Analyze(bmp);
-        return new CaptureSnapshot
-        {
-            Analysis = analysis,
-        };
+        return (analysis, analysis.State);
     }
 
-    private static void ExecuteAction(InputEngine input, IntPtr hwnd, VerifierAction action, int holdMs)
+    private static string Classify(string action, GameState before, GameState after, out float distanceDelta, out string notes)
     {
-        input.TapScanCode(hwnd, action.ScanCode, holdMs);
-    }
+        distanceDelta = Distance(before, after);
 
-    private static ActionResult Classify(CaptureSnapshot before, CaptureSnapshot after, VerifierAction action, float movementThreshold)
-    {
-        if (!before.State.IsValid || !after.State.IsValid)
+        if (!before.IsValid || !after.IsValid)
         {
-            return new ActionResult
+            notes = "telemetry strip was invalid before or after the action";
+            return "invalid_strip";
+        }
+
+        bool movementAction = IsMovementAction(action);
+        bool movementObserved = distanceDelta >= 0.10f || before.IsMoving != after.IsMoving;
+
+        if (movementAction)
+        {
+            if (movementObserved)
             {
-                Delta2D = null,
-                Status = "InvalidStrip",
-                Notes = !before.State.IsValid && !after.State.IsValid
-                    ? "before_and_after_invalid"
-                    : !before.State.IsValid
-                        ? "before_invalid"
-                        : "after_invalid",
-            };
+                notes = "position or moving-state changed after input";
+                return "movement_observed";
+            }
+
+            notes = "no coordinate or moving-state change detected";
+            return "no_movement_detected";
         }
 
-        float dx = after.State.CoordX - before.State.CoordX;
-        float dz = after.State.CoordZ - before.State.CoordZ;
-        float delta2D = MathF.Sqrt(dx * dx + dz * dz);
-
-        if (delta2D >= movementThreshold)
+        bool stateChanged = before.IsMounted != after.IsMounted || before.HasTarget != after.HasTarget || before.PlayerHP != after.PlayerHP;
+        if (stateChanged)
         {
-            return new ActionResult
-            {
-                Delta2D = delta2D,
-                Status = "MovementDetected",
-                Notes = action.IsMovementAction ? "expected_movement" : "unexpected_movement",
-            };
+            notes = "mount/target/health state changed after input";
+            return "state_changed";
         }
 
-        return new ActionResult
-        {
-            Delta2D = delta2D,
-            Status = "NoChange",
-            Notes = action.IsMovementAction ? "no_detectable_movement" : "expected_no_movement",
-        };
+        notes = "no visible state change detected";
+        return "no_state_change";
     }
 
-    private static string FormatStateShort(CaptureSnapshot snapshot)
+    private static bool IsMovementAction(string action)
     {
-        return snapshot.State.IsValid
-            ? $"ok X={snapshot.State.CoordX:F1} Z={snapshot.State.CoordZ:F1}"
-            : "invalid";
+        return action.Equals("forward", StringComparison.OrdinalIgnoreCase)
+            || action.Equals("backward", StringComparison.OrdinalIgnoreCase)
+            || action.Equals("back", StringComparison.OrdinalIgnoreCase)
+            || action.Equals("left", StringComparison.OrdinalIgnoreCase)
+            || action.Equals("strafeleft", StringComparison.OrdinalIgnoreCase)
+            || action.Equals("right", StringComparison.OrdinalIgnoreCase)
+            || action.Equals("straferight", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void AppendResult(string path, ResultRow row)
+    private static float Distance(GameState a, GameState b)
     {
-        string fullPath = Path.GetFullPath(path);
-        string? directory = Path.GetDirectoryName(fullPath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        float dx = a.CoordX - b.CoordX;
+        float dz = a.CoordZ - b.CoordZ;
+        return MathF.Sqrt(dx * dx + dz * dz);
+    }
 
-        if (!File.Exists(fullPath))
-        {
-            File.WriteAllText(fullPath, "Timestamp,Window,Action,ScanCode,BeforeValid,AfterValid,BeforeX,BeforeZ,AfterX,AfterZ,Delta2D,Status,Notes\n");
-        }
-
+    private static void AppendRow(string path, InputRow row)
+    {
         string line = string.Join(",",
-            Csv(row.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)),
-            Csv(row.WindowLabel),
-            Csv(row.ActionLabel),
-            Csv(row.ScanCode.ToString(CultureInfo.InvariantCulture)),
+            Csv(row.Timestamp),
+            Csv(row.Window),
+            Csv(row.Action),
+            Csv(row.Key),
             Csv(Bool(row.BeforeValid)),
             Csv(Bool(row.AfterValid)),
-            Csv(Float(row.BeforeX)),
-            Csv(Float(row.BeforeZ)),
-            Csv(Float(row.AfterX)),
-            Csv(Float(row.AfterZ)),
-            Csv(Float(row.Delta2D)),
-            Csv(row.Status),
+            Csv(row.BeforeX.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(row.BeforeY.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(row.BeforeZ.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(row.AfterX.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(row.AfterY.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(row.AfterZ.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(row.DistanceDelta.ToString("F2", CultureInfo.InvariantCulture)),
+            Csv(Bool(row.BeforeMoving)),
+            Csv(Bool(row.AfterMoving)),
+            Csv(Bool(row.BeforeMounted)),
+            Csv(Bool(row.AfterMounted)),
+            Csv(Bool(row.BeforeHasTarget)),
+            Csv(Bool(row.AfterHasTarget)),
+            Csv(row.Result),
             Csv(row.Notes));
 
-        File.AppendAllText(fullPath, line + Environment.NewLine);
+        File.AppendAllText(path, line + Environment.NewLine);
     }
 
-    private static string BuildIntentSummary(Options options, int selectedWindowCount, IReadOnlyList<VerifierAction> actions, string settingsSource)
+    private static void EnsureHeader(string path)
     {
-        var parts = new List<string>
+        if (!File.Exists(path))
         {
-            selectedWindowCount == 1 ? "Target=1 window" : $"Target={selectedWindowCount} windows",
-            actions.Count == 1 ? $"Action={actions[0].Label}" : $"Sequence={string.Join(">", actions.Select(action => action.Label))}",
-            $"HoldMs={options.HoldMs}",
-            $"WaitMs={options.WaitMs}",
-            $"MovementThreshold={MovementThreshold.ToString("0.###", CultureInfo.InvariantCulture)}",
-            $"Settings={settingsSource}",
-        };
+            File.WriteAllText(path, "Timestamp,Window,Action,Key,BeforeValid,AfterValid,BeforeX,BeforeY,BeforeZ,AfterX,AfterY,AfterZ,DistanceDelta,BeforeMoving,AfterMoving,BeforeMounted,AfterMounted,BeforeHasTarget,AfterHasTarget,Result,Notes\n");
+        }
+    }
 
-        if (options.ProcessId.HasValue)
-        {
-            parts.Add($"PID={options.ProcessId.Value}");
-        }
-        else if (options.ProcessIds is { Length: > 0 })
-        {
-            parts.Add($"PIDs={string.Join(",", options.ProcessIds)}");
-        }
+    private static IReadOnlyList<string> ResolveActions(Options options, out string? error)
+    {
+        error = null;
 
-        if (options.Hwnd.HasValue)
+        if (!string.IsNullOrWhiteSpace(options.MovementSequence))
         {
-            parts.Add($"HWND={RiftWindowService.FormatHwnd(options.Hwnd.Value)}");
-        }
-        else if (options.Hwnds is { Length: > 0 })
-        {
-            parts.Add($"HWNDs={string.Join(",", options.Hwnds.Select(RiftWindowService.FormatHwnd))}");
-        }
+            var values = options.MovementSequence
+                .Split(new[] { ',', ';', '+' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToArray();
+            if (values.Length == 0)
+            {
+                return DefaultSequence.Split(',');
+            }
 
-        if (!string.IsNullOrWhiteSpace(options.TitleContains))
-        {
-            parts.Add($"TitleContains={options.TitleContains}");
-        }
+            foreach (string value in values)
+            {
+                if (!Actions.ContainsKey(value))
+                {
+                    error = $"Unknown movement sequence action '{value}'.";
+                    return Array.Empty<string>();
+                }
+            }
 
-        if (options.Index.HasValue)
-        {
-            parts.Add($"Index={options.Index.Value}");
+            return values;
         }
 
-        if (!string.IsNullOrWhiteSpace(options.SettingsPath))
+        if (string.IsNullOrWhiteSpace(options.ActionName))
         {
-            parts.Add($"SettingsPath={options.SettingsPath}");
+            error = "Either --action or --movement-sequence is required.";
+            return Array.Empty<string>();
         }
 
-        return string.Join(" | ", parts);
+        if (!Actions.ContainsKey(options.ActionName))
+        {
+            error = $"Unknown action '{options.ActionName}'. Supported actions: {string.Join(", ", Actions.Keys.OrderBy(static k => k, StringComparer.OrdinalIgnoreCase))}";
+            return Array.Empty<string>();
+        }
+
+        return new[] { options.ActionName };
+    }
+
+    private static byte ResolveKey(BridgeSettings settings, string action)
+    {
+        return Actions[action](settings);
+    }
+
+    private static List<RiftWindowInfo> SelectWindows(List<RiftWindowInfo> windows, Options options, out string? error)
+    {
+        error = null;
+
+        if (options.AllWindows || options.ProcessIds is { Length: > 0 } || options.Hwnds is { Length: > 0 })
+        {
+            return windows;
+        }
+
+        if (options.WindowIndex.HasValue)
+        {
+            int index = options.WindowIndex.Value;
+            if (index <= 0 || index > windows.Count)
+            {
+                error = $"--index {index} is out of range for {windows.Count} filtered window(s).";
+                return new();
+            }
+
+            return new() { windows[index - 1] };
+        }
+
+        if (windows.Count == 1)
+        {
+            return new() { windows[0] };
+        }
+
+        error = "Multiple RIFT windows matched. Use --pid, --hwnd, --index, --all, --pids, or --hwnds to select explicit target(s).";
+        return new();
     }
 
     private static RiftWindowFilter? BuildFilter(Options options)
     {
-        if (!HasExplicitFilter(options))
+        if (!options.HasFilter)
         {
             return null;
         }
@@ -303,242 +379,70 @@ internal static class Program
         };
     }
 
-    private static bool HasExplicitFilter(Options options)
+    private static BridgeSettings LoadSettings(string repoRoot, string? settingsPath, DiagnosticService diag)
     {
-        return options.ProcessId.HasValue
-            || options.ProcessIds is { Length: > 0 }
-            || options.Hwnd.HasValue
-            || options.Hwnds is { Length: > 0 }
-            || !string.IsNullOrWhiteSpace(options.TitleContains);
+        string path = string.IsNullOrWhiteSpace(settingsPath)
+            ? Path.Combine(repoRoot, "LeaderDecoder", "settings.json")
+            : ResolvePath(repoRoot, settingsPath);
+
+        if (!File.Exists(path))
+        {
+            return new BridgeSettings();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<BridgeSettings>(File.ReadAllText(path)) ?? new BridgeSettings();
+        }
+        catch (Exception ex)
+        {
+            diag.LogToolFailure(
+                source: "LeaderInputVerifier",
+                operation: "LoadSettings",
+                detail: "Failed to load bridge settings, falling back to defaults.",
+                context: path,
+                ex: ex,
+                dedupeKey: $"settings|{path}",
+                throttleSeconds: 60.0);
+            return new BridgeSettings();
+        }
     }
 
-    private static void PrintWindowList(List<RiftWindowInfo> windows)
+    private static string FindRepoRoot()
     {
-        if (windows.Count == 0)
+        var dir = new DirectoryInfo(Environment.CurrentDirectory);
+        while (dir is not null)
         {
-            return;
+            if (Directory.Exists(Path.Combine(dir.FullName, "LeaderDecoder"))
+                && Directory.Exists(Path.Combine(dir.FullName, "LeaderInputVerifier")))
+            {
+                return dir.FullName;
+            }
+            dir = dir.Parent;
         }
 
-        for (int index = 0; index < windows.Count; index++)
-        {
-            var window = windows[index];
-            var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
-            Console.WriteLine(
-                $"[{index + 1}] {RiftWindowService.FormatIdentity(window)} | " +
-                $"Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0} | " +
-                $"Minimized={snapshot.IsMinimized}");
-            Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
-        }
+        return Environment.CurrentDirectory;
     }
 
-    private static List<RiftWindowInfo> SelectWindows(List<RiftWindowInfo> windows, Options options, out string? error)
-    {
-        error = null;
+    private static string ResolvePath(string root, string path) =>
+        Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(root, path));
 
-        if (options.AllWindows || options.ProcessIds is { Length: > 0 } || options.Hwnds is { Length: > 0 })
-        {
-            return windows;
-        }
-
-        if (options.Index.HasValue)
-        {
-            int index = options.Index.Value;
-            if (index <= 0 || index > windows.Count)
-            {
-                error = $"--index {index} is out of range for {windows.Count} filtered window(s).";
-                return new List<RiftWindowInfo>();
-            }
-
-            return new List<RiftWindowInfo> { windows[index - 1] };
-        }
-
-        if (windows.Count == 1)
-        {
-            return new List<RiftWindowInfo> { windows[0] };
-        }
-
-        error = "Multiple RIFT windows matched. Use --pid, --hwnd, --index, --all, --pids, or --hwnds to select explicit target(s).";
-        return new List<RiftWindowInfo>();
-    }
-
-    private static IReadOnlyList<VerifierAction> BuildActionPlan(Options options, BridgeSettings settings, out string? error)
-    {
-        error = null;
-
-        if (!string.IsNullOrWhiteSpace(options.ActionName))
-        {
-            if (!TryResolveAction(options.ActionName, settings, out var action, out error))
-            {
-                return Array.Empty<VerifierAction>();
-            }
-
-            return new[] { action };
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.MovementSequence))
-        {
-            var tokens = options.MovementSequence
-                .Split(new[] { ',', ';', '+', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-            var actions = new List<VerifierAction>(tokens.Length);
-            foreach (string token in tokens)
-            {
-                if (!TryResolveAction(token, settings, out var action, out error))
-                {
-                    return Array.Empty<VerifierAction>();
-                }
-
-                actions.Add(action);
-            }
-
-            if (actions.Count == 0)
-            {
-                error = "No valid actions were found in --movement-sequence.";
-                return Array.Empty<VerifierAction>();
-            }
-
-            return actions;
-        }
-
-        error = "Either --action or --movement-sequence must be supplied.";
-        return Array.Empty<VerifierAction>();
-    }
-
-    private static bool TryResolveAction(string value, BridgeSettings settings, out VerifierAction action, out string? error)
-    {
-        action = default!;
-        error = null;
-
-        string normalized = value.Trim().ToLowerInvariant();
-        byte scanCode;
-        bool isMovementAction;
-
-        switch (normalized)
-        {
-            case "forward":
-                scanCode = settings.KeyForward;
-                isMovementAction = true;
-                break;
-            case "backward":
-            case "back":
-                scanCode = settings.KeyBack;
-                isMovementAction = true;
-                break;
-            case "left":
-            case "strafeleft":
-                scanCode = settings.KeyLeft;
-                isMovementAction = true;
-                break;
-            case "right":
-            case "straferight":
-                scanCode = settings.KeyRight;
-                isMovementAction = true;
-                break;
-            case "jump":
-                scanCode = settings.KeyJump;
-                isMovementAction = true;
-                break;
-            case "mount":
-                scanCode = settings.KeyMount;
-                isMovementAction = false;
-                break;
-            case "interact":
-            case "assist":
-                scanCode = settings.KeyInteract;
-                isMovementAction = false;
-                break;
-            default:
-                error = $"Unknown action '{value}'. Supported actions: forward, backward, left, right, jump, mount, interact.";
-                return false;
-        }
-
-        if (scanCode == 0)
-        {
-            error = $"Action '{value}' resolved to scan code 0 in the current settings.";
-            return false;
-        }
-
-        action = new VerifierAction
-        {
-            Label = normalized,
-            ScanCode = scanCode,
-            IsMovementAction = isMovementAction,
-        };
-
-        return true;
-    }
-
-    private static BridgeSettings LoadSettings(string? explicitPath, out string source)
-    {
-        var candidatePaths = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(explicitPath))
-        {
-            candidatePaths.Add(Path.GetFullPath(explicitPath));
-        }
-
-        string defaultPath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "..", "LeaderDecoder", "settings.json"));
-        candidatePaths.Add(defaultPath);
-
-        foreach (string path in candidatePaths.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            if (!File.Exists(path))
-            {
-                continue;
-            }
-
-            try
-            {
-                string json = File.ReadAllText(path);
-                var settings = JsonSerializer.Deserialize<BridgeSettings>(json) ?? new BridgeSettings();
-                source = path;
-                return settings;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[SETTINGS] Failed to load '{path}': {ex.Message}. Falling back to defaults.");
-            }
-        }
-
-        source = "defaults";
-        return new BridgeSettings();
-    }
-
-    private static void EnsureResultLog(string debugDir, string resultLogPath)
-    {
-        Directory.CreateDirectory(Path.GetFullPath(debugDir));
-    }
-
-    private static string Csv(string? value) => $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
+    private static string Csv(string value) =>
+        value.Contains('"') || value.Contains(',') || value.Contains('\n') || value.Contains('\r')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
 
     private static string Bool(bool value) => value ? "true" : "false";
 
-    private static string Float(float? value) => value.HasValue ? value.Value.ToString("F3", CultureInfo.InvariantCulture) : string.Empty;
-
-    private static void PrintUsage()
+    private static void PrintWindows(List<RiftWindowInfo> windows)
     {
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  LeaderInputVerifier.exe --list");
-        Console.WriteLine("  LeaderInputVerifier.exe --pid 127928 --action forward --wait-ms 250");
-        Console.WriteLine("  LeaderInputVerifier.exe --hwnd 0x351350 --movement-sequence forward,left,right");
-        Console.WriteLine("  LeaderInputVerifier.exe --pids 127928,133228 --action interact --settings ..\\LeaderDecoder\\settings.json");
-        Console.WriteLine("  LeaderInputVerifier.exe --title-contains RIFT --index 2 --action mount");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit if no action is given");
-        Console.WriteLine("  --index N              Target the Nth filtered RIFT window");
-        Console.WriteLine("  --all                  Run the selected action(s) on all filtered RIFT windows");
-        Console.WriteLine("  --pid N                Filter to a specific process id");
-        Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
-        Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
-        Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
-        Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
-        Console.WriteLine("  --action NAME          forward, backward, left, right, jump, mount, interact");
-        Console.WriteLine("  --movement-sequence    Comma/semicolon/plus separated list of actions");
-        Console.WriteLine("  --settings PATH        Explicit settings.json path");
-        Console.WriteLine("  --hold-ms N           Tap duration in milliseconds (default: 120)");
-        Console.WriteLine("  --wait-ms N           Delay after action before post-capture (default: 250)");
-        Console.WriteLine("  --help                Show this help");
+        for (int i = 0; i < windows.Count; i++)
+        {
+            var window = windows[i];
+            var snapshot = RiftWindowService.GetWindowSnapshot(window.Hwnd);
+            Console.WriteLine($"[{i + 1}] {RiftWindowService.FormatIdentity(window)} | Client={snapshot.ClientWidth ?? 0}x{snapshot.ClientHeight ?? 0} | Minimized={snapshot.IsMinimized}");
+            Console.WriteLine($"    Selectors: {RiftWindowService.FormatSelectorHints(window)}");
+        }
     }
 
     private static bool TryParseOptions(string[] args, out Options options, out string? error)
@@ -554,7 +458,7 @@ internal static class Program
                 case "--help":
                 case "-h":
                 case "/?":
-                    options.ShowHelp = true;
+                    options.Help = true;
                     break;
                 case "--list":
                     options.ListOnly = true;
@@ -563,137 +467,107 @@ internal static class Program
                     options.AllWindows = true;
                     break;
                 case "--index":
-                    if (!TryReadInt(args, ref i, out int index, out error))
-                    {
-                        return false;
-                    }
-                    options.Index = index;
+                    if (!TryReadInt(args, ref i, out int index, out error)) return false;
+                    options.WindowIndex = index;
                     break;
                 case "--pid":
-                    if (!TryReadInt(args, ref i, out int pidValue, out error))
-                    {
-                        return false;
-                    }
-                    options.ProcessId = pidValue;
+                    if (!TryReadInt(args, ref i, out int pid, out error)) return false;
+                    options.ProcessId = pid;
                     break;
                 case "--pids":
-                    if (!TryReadString(args, ref i, out string? pidListText, out error))
+                    if (!TryReadString(args, ref i, out string? pids, out error)) return false;
+                    if (!RiftWindowService.TryParseProcessIdList(pids, out int[] processIds))
                     {
-                        return false;
-                    }
-                    if (!RiftWindowService.TryParseProcessIdList(pidListText, out int[] processIds))
-                    {
-                        error = $"Invalid --pids value '{pidListText}'. Expected comma-separated integers.";
+                        error = $"Invalid --pids value '{pids}'.";
                         return false;
                     }
                     options.ProcessIds = processIds;
                     break;
                 case "--hwnd":
-                    if (!TryReadString(args, ref i, out string? hwndText, out error))
+                    if (!TryReadString(args, ref i, out string? hwndValue, out error)) return false;
+                    if (!RiftWindowService.TryParseHwnd(hwndValue, out IntPtr hwnd))
                     {
-                        return false;
-                    }
-                    if (!RiftWindowService.TryParseHwnd(hwndText, out IntPtr hwnd))
-                    {
-                        error = $"Invalid --hwnd value '{hwndText}'.";
+                        error = $"Invalid --hwnd value '{hwndValue}'.";
                         return false;
                     }
                     options.Hwnd = hwnd;
                     break;
                 case "--hwnds":
-                    if (!TryReadString(args, ref i, out string? hwndListText, out error))
+                    if (!TryReadString(args, ref i, out string? hwnds, out error)) return false;
+                    if (!RiftWindowService.TryParseHwndList(hwnds, out IntPtr[] handles))
                     {
+                        error = $"Invalid --hwnds value '{hwnds}'.";
                         return false;
                     }
-                    if (!RiftWindowService.TryParseHwndList(hwndListText, out IntPtr[] hwnds))
-                    {
-                        error = $"Invalid --hwnds value '{hwndListText}'.";
-                        return false;
-                    }
-                    options.Hwnds = hwnds;
+                    options.Hwnds = handles;
                     break;
                 case "--title-contains":
-                    if (!TryReadString(args, ref i, out string? titleContains, out error))
-                    {
-                        return false;
-                    }
-                    options.TitleContains = titleContains;
+                    if (!TryReadString(args, ref i, out string? title, out error)) return false;
+                    options.TitleContains = title;
                     break;
                 case "--action":
-                    if (!TryReadString(args, ref i, out string? actionName, out error))
-                    {
-                        return false;
-                    }
-                    options.ActionName = actionName;
+                    if (!TryReadString(args, ref i, out string? action, out error)) return false;
+                    options.ActionName = action;
                     break;
                 case "--movement-sequence":
-                    if (!TryReadString(args, ref i, out string? sequence, out error))
+                    if (!TryReadOptionalValue(args, ref i, out string? sequence))
                     {
+                        error = "Invalid --movement-sequence value.";
                         return false;
                     }
-                    options.MovementSequence = sequence;
+                    options.MovementSequence = string.IsNullOrWhiteSpace(sequence) ? DefaultSequence : sequence;
                     break;
                 case "--settings":
-                    if (!TryReadString(args, ref i, out string? settingsPath, out error))
-                    {
-                        return false;
-                    }
-                    options.SettingsPath = settingsPath;
+                    if (!TryReadString(args, ref i, out string? settings, out error)) return false;
+                    options.SettingsPath = settings;
                     break;
                 case "--hold-ms":
-                    if (!TryReadInt(args, ref i, out int holdMs, out error))
-                    {
-                        return false;
-                    }
+                    if (!TryReadInt(args, ref i, out int holdMs, out error)) return false;
                     options.HoldMs = Math.Max(1, holdMs);
                     break;
                 case "--wait-ms":
-                    if (!TryReadInt(args, ref i, out int waitMs, out error))
-                    {
-                        return false;
-                    }
+                    if (!TryReadInt(args, ref i, out int waitMs, out error)) return false;
                     options.WaitMs = Math.Max(0, waitMs);
                     break;
                 default:
-                    error = $"Unknown option '{arg}'.";
+                    error = $"Unknown argument '{arg}'.";
                     return false;
             }
         }
 
-        if (options.HoldMs <= 0)
-        {
-            options.HoldMs = DefaultHoldMs;
-        }
-
-        if (options.WaitMs < 0)
-        {
-            options.WaitMs = DefaultWaitMs;
-        }
-
         return true;
     }
 
-    private static bool TryReadString(string[] args, ref int i, out string? value, out string? error)
+    private static bool TryReadString(string[] args, ref int index, out string? value, out string? error)
     {
         value = null;
         error = null;
-
-        if (i + 1 >= args.Length)
+        if (index + 1 >= args.Length)
         {
-            error = $"Missing value for {args[i]}.";
+            error = $"Missing value for {args[index]}.";
             return false;
         }
 
-        value = args[++i];
+        value = args[++index];
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryReadOptionalValue(string[] args, ref int index, out string? value)
+    {
+        value = null;
+        if (index + 1 < args.Length && !args[index + 1].StartsWith("--", StringComparison.Ordinal))
+        {
+            value = args[++index];
+        }
+
         return true;
     }
 
-    private static bool TryReadInt(string[] args, ref int i, out int value, out string? error)
+    private static bool TryReadInt(string[] args, ref int index, out int value, out string? error)
     {
         value = 0;
         error = null;
-
-        if (!TryReadString(args, ref i, out string? text, out error))
+        if (!TryReadString(args, ref index, out string? text, out error))
         {
             return false;
         }
@@ -707,12 +581,37 @@ internal static class Program
         return true;
     }
 
+    private static void PrintUsage()
+    {
+        Console.WriteLine();
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  LeaderInputVerifier.exe --action forward --pid 127928");
+        Console.WriteLine("  LeaderInputVerifier.exe --movement-sequence forward,backward,left,right --all");
+        Console.WriteLine("  LeaderInputVerifier.exe --hwnd 0x351350 --action interact --settings ..\\LeaderDecoder\\settings.json");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --list                 List detected or filtered RIFT windows and exit");
+        Console.WriteLine("  --index N              Target the Nth filtered RIFT window");
+        Console.WriteLine("  --all                  Verify all filtered RIFT windows");
+        Console.WriteLine("  --pid N                Filter to a specific process id");
+        Console.WriteLine("  --pids N1,N2           Filter to multiple process ids in the given order");
+        Console.WriteLine("  --hwnd HEX             Filter to a specific HWND, e.g. 0x351350");
+        Console.WriteLine("  --hwnds A,B            Filter to multiple HWNDs in the given order");
+        Console.WriteLine("  --title-contains TEXT  Filter to window titles containing TEXT");
+        Console.WriteLine("  --action NAME          Single action: forward, backward, left, right, jump, mount, interact");
+        Console.WriteLine("  --movement-sequence    Comma-separated action sequence, default: forward,backward,left,right");
+        Console.WriteLine("  --settings PATH        Optional settings.json path");
+        Console.WriteLine("  --hold-ms N            Key hold duration in milliseconds (default: 120)");
+        Console.WriteLine("  --wait-ms N            Wait after each action before the after-capture (default: 250)");
+        Console.WriteLine("  --help                 Show this help");
+    }
+
     private sealed class Options
     {
-        public bool ShowHelp { get; set; }
+        public bool Help { get; set; }
         public bool ListOnly { get; set; }
         public bool AllWindows { get; set; }
-        public int? Index { get; set; }
+        public int? WindowIndex { get; set; }
         public int? ProcessId { get; set; }
         public int[]? ProcessIds { get; set; }
         public IntPtr? Hwnd { get; set; }
@@ -723,44 +622,31 @@ internal static class Program
         public string? SettingsPath { get; set; }
         public int HoldMs { get; set; } = DefaultHoldMs;
         public int WaitMs { get; set; } = DefaultWaitMs;
-
-        public bool HasActionIntent => !string.IsNullOrWhiteSpace(ActionName) || !string.IsNullOrWhiteSpace(MovementSequence);
+        public bool HasFilter => ProcessId.HasValue || ProcessIds is { Length: > 0 } || Hwnd.HasValue || Hwnds is { Length: > 0 } || !string.IsNullOrWhiteSpace(TitleContains);
     }
 
-    private sealed class VerifierAction
+    private sealed class InputRow
     {
-        public required string Label { get; init; }
-        public required byte ScanCode { get; init; }
-        public required bool IsMovementAction { get; init; }
-    }
-
-    private sealed class CaptureSnapshot
-    {
-        public required StripAnalysis Analysis { get; init; }
-        public GameState State => Analysis.State;
-    }
-
-    private sealed class ActionResult
-    {
-        public float? Delta2D { get; init; }
-        public required string Status { get; init; }
-        public required string Notes { get; init; }
-    }
-
-    private sealed class ResultRow
-    {
-        public required DateTime Timestamp { get; init; }
-        public required string WindowLabel { get; init; }
-        public required string ActionLabel { get; init; }
-        public required byte ScanCode { get; init; }
+        public required string Timestamp { get; init; }
+        public required string Window { get; init; }
+        public required string Action { get; init; }
+        public required string Key { get; init; }
         public required bool BeforeValid { get; init; }
         public required bool AfterValid { get; init; }
         public required float BeforeX { get; init; }
+        public required float BeforeY { get; init; }
         public required float BeforeZ { get; init; }
         public required float AfterX { get; init; }
+        public required float AfterY { get; init; }
         public required float AfterZ { get; init; }
-        public required float? Delta2D { get; init; }
-        public required string Status { get; init; }
+        public required float DistanceDelta { get; init; }
+        public required bool BeforeMoving { get; init; }
+        public required bool AfterMoving { get; init; }
+        public required bool BeforeMounted { get; init; }
+        public required bool AfterMounted { get; init; }
+        public required bool BeforeHasTarget { get; init; }
+        public required bool AfterHasTarget { get; init; }
+        public required string Result { get; init; }
         public required string Notes { get; init; }
     }
 }
