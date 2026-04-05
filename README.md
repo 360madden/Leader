@@ -138,6 +138,20 @@ Use these helper launchers when you want to validate the strip without changing 
 | `run_input_verifier.bat` | Verifies whether configured controller actions such as forward/back/left/right produce detectable strip/coordinate changes, with action-aware before/after classification and CSV result logging |
 | `run_screenshot_inspector.bat` | Inspects the latest RIFT screenshot, or a chosen image path, for the Leader strip |
 
+### Addon-Side Dump Logging
+
+The addon can now persist a small rolling telemetry buffer into its SavedVariables file for helper-app consumption:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader dump status` | Show whether dump logging is enabled and how many entries are buffered |
+| `/leader dump on` | Enable telemetry dump buffering |
+| `/leader dump off` | Disable telemetry dump buffering |
+| `/leader dump clear` | Clear buffered dump entries |
+| `/leader dump interval <seconds>` | Adjust the dump throttle interval |
+
+Buffered samples are stored in the character SavedVariables file alongside `LeaderConfig` and are intended for offline/helper-app correlation, not live file IO from the addon.
+
 ### Window Resize Helper
 
 Use these helper launchers when you want to move between known-good live client sizes quickly:
@@ -156,7 +170,7 @@ Use this helper when you want a single artifact bundle for a bad run:
 
 | Helper | Purpose |
 |--------|---------|
-| `run_trace_bundle.bat` | Creates a timestamped trace bundle containing current logs, helper debug artifacts, settings snapshots, a live window inventory, and a bounded set of recent images for later review |
+| `run_trace_bundle.bat` | Creates a timestamped trace bundle containing current logs, helper debug artifacts, addon saved files such as `AddonSettings.lua` / `SavedVariables\\Leader.lua`, settings snapshots, a live window inventory, and a bounded set of recent images for later review |
 
 Current field notes live in:
 - `docs/non-invasive-validation.md`

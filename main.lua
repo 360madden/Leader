@@ -28,15 +28,64 @@ local function FormatSlashCommands()
     return table.concat(commands, " or ")
 end
 
+local function PrintHelp()
+    local prefix = FormatSlashCommands()
+    print("🛰️ Leader Commands:")
+    print("  " .. prefix .. " diag             — Toggle telemetry audit overlay")
+    print("  " .. prefix .. " dump status      — Show dump-log status")
+    print("  " .. prefix .. " dump on          — Enable telemetry dumping")
+    print("  " .. prefix .. " dump off         — Disable telemetry dumping")
+    print("  " .. prefix .. " dump clear       — Clear recent dump entries")
+    print("  " .. prefix .. " dump interval X  — Set dump throttle interval in seconds")
+end
+
+local function HandleDumpCommand(params)
+    local subcommand, remainder = string.match(params or "", "^(%S+)%s*(.-)$")
+    subcommand = string.lower(subcommand or "")
+    remainder = string.lower(string.match(remainder or "", "^%s*(.-)%s*$"))
+
+    if subcommand == "" or subcommand == "status" then
+        Private.DumpLog.PrintStatus()
+    elseif subcommand == "on" then
+        Private.DumpLog.SetEnabled(true)
+        print("🛰️ Leader: dump logging ON")
+        Private.DumpLog.PrintStatus()
+    elseif subcommand == "off" then
+        Private.DumpLog.SetEnabled(false)
+        print("🛰️ Leader: dump logging OFF")
+        Private.DumpLog.PrintStatus()
+    elseif subcommand == "clear" then
+        Private.DumpLog.Clear()
+        print("🛰️ Leader: dump entries cleared")
+        Private.DumpLog.PrintStatus()
+    elseif subcommand == "interval" then
+        local seconds = tonumber(remainder)
+        if not seconds or seconds <= 0 then
+            print("🛰️ Leader: dump interval expects a positive number of seconds.")
+            return
+        end
+
+        Private.DumpLog.SetIntervalSeconds(seconds)
+        print(string.format("🛰️ Leader: dump interval set to %.2fs", seconds))
+        Private.DumpLog.PrintStatus()
+    elseif subcommand == "help" then
+        Private.DumpLog.PrintHelp(FormatSlashCommands())
+    else
+        print("🛰️ Leader: unknown dump command '" .. tostring(subcommand) .. "'.")
+        Private.DumpLog.PrintHelp(FormatSlashCommands())
+    end
+end
+
 local function HandleSlashCommand(_, params)
     params = string.lower(string.match(params or "", "^%s*(.-)%s*$"))
     local command = string.match(params, "^(%S+)") or ""
 
     if command == "diag" then
         Private.DiagUI.Toggle()
+    elseif command == "dump" then
+        HandleDumpCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "help" or command == "" then
-        print("🛰️ Leader Commands:")
-        print("  " .. FormatSlashCommands() .. " diag   — Toggle telemetry audit overlay")
+        PrintHelp()
     end
 end
 
@@ -97,12 +146,19 @@ local function UpdateTelemetry()
 
     -- 9. Update in-game Diagnostic UI (only if visible)
     Private.DiagUI.Update(packet)
+
+    -- 10. Persist recent telemetry samples for helper-app consumption via SavedVariables.
+    Private.DumpLog.Record(packet)
 end
 
 --- Initializes the telemetry engine.
 local function Init()
+    LeaderConfig = LeaderConfig or {}
     Private.Renderer.Init()
     Private.DiagUI.Create()
+    if Private.DumpLog and Private.DumpLog.GetStatus then
+        Private.DumpLog.GetStatus()
+    end
 
     local leaderRegistered = RegisterSlashCommand("leader")
     local leaderBridgeRegistered = RegisterSlashCommand("leaderbridge")

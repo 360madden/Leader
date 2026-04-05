@@ -263,6 +263,11 @@ function Gatherer.GetPacket()
         targetID = targetUnitId or (t and t.id) or nil,
         playerTag = BuildPlayerTag(p),
         motionSpeed = 0,
+        isCombat = false,
+        hasTarget = false,
+        isMoving = false,
+        isAlive = false,
+        isMounted = false,
     }
 
     packet.zoneHash = ResolveZoneHash(p)
@@ -290,11 +295,11 @@ function Gatherer.GetPacket()
     --   bit 2 = IsMoving
     --   bit 3 = IsAlive
     --   bit 4 = IsMounted
-    if p.combat  then packet.flags = packet.flags + 1  end
-    if packet.targetID then packet.flags = packet.flags + 2  end
-    if isMoving  then packet.flags = packet.flags + 4  end
-    if (p.health or 0) > 0 then packet.flags = packet.flags + 8 end
-    if isMounted then packet.flags = packet.flags + 16 end
+    if p.combat  then packet.flags = packet.flags + 1; packet.isCombat = true end
+    if packet.targetID then packet.flags = packet.flags + 2; packet.hasTarget = true end
+    if isMoving  then packet.flags = packet.flags + 4; packet.isMoving = true end
+    if (p.health or 0) > 0 then packet.flags = packet.flags + 8; packet.isAlive = true end
+    if isMounted then packet.flags = packet.flags + 16; packet.isMounted = true end
 
     return packet
 end

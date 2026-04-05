@@ -13,6 +13,7 @@ RunOnStartup = {
   "Modules/Encoder.lua",
   "Modules/Renderer.lua",
   "Modules/Gatherer.lua",
+  "Modules/DumpLog.lua",
   "Modules/DiagnosticUI.lua",
   "main.lua"
 }
