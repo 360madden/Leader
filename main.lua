@@ -51,6 +51,7 @@ local function PrintHelp()
     print("  " .. prefix .. " capabilities     — Show addon capability status")
     print("  " .. prefix .. " timeline         — Show session timeline status")
     print("  " .. prefix .. " stats            — Show session statistics")
+    print("  " .. prefix .. " packetaudit      — Show packet/encoder audit status")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -221,6 +222,10 @@ local function HandleSlashCommand(_, params)
         if Private.SessionStats and Private.SessionStats.PrintStatus then
             Private.SessionStats.PrintStatus()
         end
+    elseif command == "packetaudit" or command == "packet" then
+        if Private.PacketAudit and Private.PacketAudit.PrintStatus then
+            Private.PacketAudit.PrintStatus()
+        end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "dump" then
@@ -370,6 +375,9 @@ local function UpdateTelemetry()
     if Private.SessionStats and Private.SessionStats.RecordPacket then
         Private.SessionStats.RecordPacket(packet)
     end
+    if Private.PacketAudit and Private.PacketAudit.Sync then
+        Private.PacketAudit.Sync(packet)
+    end
 
     if Private.TransitionState and Private.TransitionState.RecordPacket then
         Private.TransitionState.RecordPacket(packet)
@@ -409,11 +417,23 @@ local function Init()
     if Private.SessionStats and Private.SessionStats.Init then
         Private.SessionStats.Init()
     end
+    if Private.PacketAudit and Private.PacketAudit.Init then
+        Private.PacketAudit.Init()
+    end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
         Private.CapabilityStatus.MarkModuleReady("runtime", Private.RuntimeStatus and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("sessionTimeline", Private.SessionTimeline and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("sessionStats", Private.SessionStats and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("packetAudit", Private.PacketAudit and true or false)
     end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()

@@ -57,6 +57,9 @@ local function EnsureConfig()
     if type(export.sessionStats) ~= "table" then
         export.sessionStats = {}
     end
+    if type(export.packetAudit) ~= "table" then
+        export.packetAudit = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -119,6 +122,9 @@ local function UpdateFromCapabilities(export)
         transitionReady = status.transitionReady,
         debugExportReady = status.debugExportReady,
         renderHealthReady = status.renderHealthReady,
+        sessionTimelineReady = status.sessionTimelineReady,
+        sessionStatsReady = status.sessionStatsReady,
+        packetAuditReady = status.packetAuditReady,
         rendererReady = status.rendererReady,
         statusBadgeReady = status.statusBadgeReady,
         diagReady = status.diagReady,
@@ -168,6 +174,24 @@ local function UpdateFromSessionStats(export)
     }
 end
 
+local function UpdateFromPacketAudit(export)
+    if not (Private.PacketAudit and Private.PacketAudit.GetStatus) then
+        return
+    end
+
+    local status = Private.PacketAudit.GetStatus()
+    export.packetAudit = {
+        checkedPacketCount = status.checkedPacketCount,
+        validPacketCount = status.validPacketCount,
+        invalidPacketCount = status.invalidPacketCount,
+        lastCheckedAt = status.lastCheckedAt,
+        lastIssueAt = status.lastIssueAt,
+        lastIssueKind = status.lastIssueKind,
+        lastIssue = status.lastIssue,
+        historyCount = status.historyCount,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -213,6 +237,7 @@ function DebugExport.Sync(packet)
     UpdateFromCapabilities(export)
     UpdateFromTimeline(export)
     UpdateFromSessionStats(export)
+    UpdateFromPacketAudit(export)
     UpdateFromDump(export)
 end
 
@@ -226,6 +251,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromCapabilities(export)
     UpdateFromTimeline(export)
     UpdateFromSessionStats(export)
+    UpdateFromPacketAudit(export)
     UpdateFromDump(export)
 end
 

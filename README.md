@@ -239,6 +239,7 @@ Capability status keeps:
 
 - slash registration state and active primary slash command
 - runtime / transition / export / render-health module readiness
+- session timeline / session stats / packet audit readiness
 - mini status-badge readiness
 - renderer / diag / dump subsystem readiness
 - bounded capability-change history
@@ -300,6 +301,25 @@ The session stats track:
 - render failures and layout resync counts
 - command usage counts for dump / badge / diag
 - last seen player tag and zone hash
+
+### Addon-Side Packet Audit
+
+The addon now validates packet shape and encoder output in `LeaderConfig.packetAudit`, which helps catch internal schema drift before it reaches the external decoder.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader packetaudit` | Print the current packet-audit summary |
+| `/leader packet` | Short alias for packet-audit status |
+
+Packet audit checks:
+
+- byte-range safety for HP, flags, and zone hash
+- finite coordinate and motion values
+- protocol-range safety for heading
+- player-tag format validity
+- normalized encoder output across all telemetry pixels
 
 ### Window Resize Helper
 
