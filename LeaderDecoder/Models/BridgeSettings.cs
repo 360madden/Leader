@@ -31,9 +31,9 @@ namespace LeaderDecoder.Models
 
         // ⌨️ Keybindings (ScanCodes)
         public byte KeyForward { get; set; } = 0x11; // W
-        public byte KeyLeft { get; set; } = 0x1E;    // A
+        public byte KeyLeft { get; set; } = 0x10;    // Q
         public byte KeyBack { get; set; } = 0x1F;    // S
-        public byte KeyRight { get; set; } = 0x20;   // D
+        public byte KeyRight { get; set; } = 0x12;   // E
         public byte KeyTurnLeft { get; set; } = 0x1E;  // Legacy turn-left key; only released during emergency stop
         public byte KeyTurnRight { get; set; } = 0x20; // Legacy turn-right key; only released during emergency stop
         public byte KeyJump { get; set; } = 0x39;    // Space

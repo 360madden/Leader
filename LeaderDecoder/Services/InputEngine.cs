@@ -26,7 +26,9 @@ namespace LeaderDecoder.Services
         // Virtual Key codes (wParam) — RIFT uses these alongside ScanCodes
         private enum VK : ushort
         {
+            Q     = 0x51,
             W     = 0x57,
+            E     = 0x45,
             A     = 0x41,
             S     = 0x53,
             D     = 0x44,
@@ -43,7 +45,9 @@ namespace LeaderDecoder.Services
         // ScanCodes (Set 1) — sent in lParam bits 16-23
         public enum RiftKey : ushort
         {
+            Q     = 0x10,
             W     = 0x11,
+            E     = 0x12,
             A     = 0x1E,
             S     = 0x1F,
             D     = 0x20,
@@ -61,7 +65,9 @@ namespace LeaderDecoder.Services
 
         static InputEngine()
         {
+            _vkMap[(int)RiftKey.Q]     = VK.Q;
             _vkMap[(int)RiftKey.W]     = VK.W;
+            _vkMap[(int)RiftKey.E]     = VK.E;
             _vkMap[(int)RiftKey.A]     = VK.A;
             _vkMap[(int)RiftKey.S]     = VK.S;
             _vkMap[(int)RiftKey.D]     = VK.D;

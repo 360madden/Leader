@@ -86,9 +86,9 @@ Auto-generated on first run next to `LeaderDecoder.exe`:
   "TurnD": 0.2,
   "AssistDistance": 5.0,
   "KeyForward": 17,
-  "KeyLeft": 30,
+  "KeyLeft": 16,
   "KeyBack": 31,
-  "KeyRight": 32,
+  "KeyRight": 18,
   "KeyJump": 57,
   "KeyMount": 50,
   "KeyInteract": 33
@@ -100,6 +100,8 @@ Auto-generated on first run next to `LeaderDecoder.exe`:
 - `TurnD` — Rotation damping. Higher = less overshoot jitter. Default `0.2`
 - `FollowDistanceMin/Max` — Deadzone band in metres. Followers hold inside, chase outside.
 - `AssistDistance` — Max range for automatic Interact (F key) combat assist.
+
+> Note: the current follow controller is now coordinate-only and does not use the legacy turn-tuning values above for active steering. They remain in `settings.json` for compatibility. The follower currently assumes `Q` / `E` are the strafe inputs, while `A` / `D` remain turn keys.
 
 ---
 
@@ -148,6 +150,7 @@ Use these helper launchers when you want to move between known-good live client 
 Current field notes live in:
 - `docs/non-invasive-validation.md`
 - `docs/window-resizer.md`
+- `docs/navigation-controller.md`
 
 ---
 

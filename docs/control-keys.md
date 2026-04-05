@@ -7,6 +7,8 @@ RIFT is a DirectX game, and its input handler expects hardware-level ScanCodes (
 
 > **Technical Detail**: The `PostMessage` `lParam` for `WM_KEYDOWN` must include the hardware ScanCode shifted into bits 16-23.
 
+> **Current navigation assumption**: the coordinate-only follow controller expects `Q` / `E` to function as strafe keys for the follower, while `A` / `D` remain turn keys.
+
 ---
 
 ## 🎮 Movement Keys
@@ -14,9 +16,11 @@ RIFT is a DirectX game, and its input handler expects hardware-level ScanCodes (
 | Action | Virtual Key (VK) | ScanCode (Set 1) | Hex Value |
 | :--- | :--- | :--- | :--- |
 | **Move Forward** | `W` | `0x11` | `VK: 0x57` |
-| **Strafe / Turn Left** | `A` | `0x1E` | `VK: 0x41` |
+| **Strafe Left** | `Q` | `0x10` | `VK: 0x51` |
 | **Move Backward** | `S` | `0x1F` | `VK: 0x53` |
-| **Strafe / Turn Right**| `D` | `0x20` | `VK: 0x44` |
+| **Strafe Right**| `E` | `0x12` | `VK: 0x45` |
+| **Turn Left** | `A` | `0x1E` | `VK: 0x41` |
+| **Turn Right**| `D` | `0x20` | `VK: 0x44` |
 | **Jump** | `Space` | `0x39` | `VK: 0x20` |
 
 ---
