@@ -241,6 +241,7 @@ Capability status keeps:
 - runtime / transition / export / render-health module readiness
 - session timeline / session stats / packet audit / cadence readiness
 - client profile readiness
+- target snapshot readiness
 - mini status-badge readiness
 - renderer / diag / dump subsystem readiness
 - bounded capability-change history
@@ -358,6 +359,23 @@ The client profile keeps:
 - current primary slash command and registration state
 - player name, player ID, and player tag
 - last known zone name, zone ID, and zone hash
+
+### Addon-Side Target Snapshot
+
+The addon now persists a target-focused snapshot in `LeaderConfig.targetSnapshot`, which gives external tools real target identity information instead of only a binary `hasTarget` flag.
+
+Use:
+
+| Control | Purpose |
+|---------|---------|
+| `/leader target` | Print the current target snapshot summary |
+
+The target snapshot keeps:
+
+- current target ID, name, and compact target tag
+- target acquire / loss / switch counts
+- current acquire time and last loss time
+- last known target identity after target loss
 
 ### Window Resize Helper
 

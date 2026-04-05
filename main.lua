@@ -54,6 +54,7 @@ local function PrintHelp()
     print("  " .. prefix .. " packetaudit      — Show packet/encoder audit status")
     print("  " .. prefix .. " cadence          — Show update cadence timing")
     print("  " .. prefix .. " profile          — Show client profile snapshot")
+    print("  " .. prefix .. " target           — Show target snapshot status")
     print("  " .. prefix .. " badge            — Toggle mini in-game status badge")
     print("  " .. prefix .. " dump status      — Show dump-log status")
     print("  " .. prefix .. " dump on          — Enable telemetry dumping")
@@ -236,6 +237,10 @@ local function HandleSlashCommand(_, params)
         if Private.ClientProfile and Private.ClientProfile.PrintStatus then
             Private.ClientProfile.PrintStatus()
         end
+    elseif command == "target" then
+        if Private.TargetSnapshot and Private.TargetSnapshot.PrintStatus then
+            Private.TargetSnapshot.PrintStatus()
+        end
     elseif command == "badge" then
         HandleBadgeCommand(string.match(params, "^%S+%s*(.-)$") or "")
     elseif command == "dump" then
@@ -399,6 +404,9 @@ local function UpdateTelemetry()
     if Private.ClientProfile and Private.ClientProfile.Sync then
         Private.ClientProfile.Sync(packet)
     end
+    if Private.TargetSnapshot and Private.TargetSnapshot.Sync then
+        Private.TargetSnapshot.Sync(packet)
+    end
 
     if Private.TransitionState and Private.TransitionState.RecordPacket then
         Private.TransitionState.RecordPacket(packet)
@@ -447,6 +455,9 @@ local function Init()
     if Private.ClientProfile and Private.ClientProfile.Init then
         Private.ClientProfile.Init()
     end
+    if Private.TargetSnapshot and Private.TargetSnapshot.Init then
+        Private.TargetSnapshot.Init()
+    end
     if Private.CapabilityStatus and Private.CapabilityStatus.Init then
         Private.CapabilityStatus.Init()
     end
@@ -467,6 +478,9 @@ local function Init()
     end
     if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
         Private.CapabilityStatus.MarkModuleReady("clientProfile", Private.ClientProfile and true or false)
+    end
+    if Private.CapabilityStatus and Private.CapabilityStatus.MarkModuleReady then
+        Private.CapabilityStatus.MarkModuleReady("targetSnapshot", Private.TargetSnapshot and true or false)
     end
     if Private.TransitionState and Private.TransitionState.Init then
         Private.TransitionState.Init()

@@ -66,6 +66,9 @@ local function EnsureConfig()
     if type(export.clientProfile) ~= "table" then
         export.clientProfile = {}
     end
+    if type(export.targetSnapshot) ~= "table" then
+        export.targetSnapshot = {}
+    end
     if type(export.dump) ~= "table" then
         export.dump = {}
     end
@@ -133,6 +136,7 @@ local function UpdateFromCapabilities(export)
         packetAuditReady = status.packetAuditReady,
         updateCadenceReady = status.updateCadenceReady,
         clientProfileReady = status.clientProfileReady,
+        targetSnapshotReady = status.targetSnapshotReady,
         rendererReady = status.rendererReady,
         statusBadgeReady = status.statusBadgeReady,
         diagReady = status.diagReady,
@@ -244,6 +248,29 @@ local function UpdateFromClientProfile(export)
     }
 end
 
+local function UpdateFromTargetSnapshot(export)
+    if not (Private.TargetSnapshot and Private.TargetSnapshot.GetStatus) then
+        return
+    end
+
+    local target = Private.TargetSnapshot.GetStatus()
+    export.targetSnapshot = {
+        lastUpdatedAt = target.lastUpdatedAt,
+        hasTarget = target.hasTarget,
+        targetId = target.targetId,
+        targetName = target.targetName,
+        targetTag = target.targetTag,
+        acquiredAt = target.acquiredAt,
+        lastLostAt = target.lastLostAt,
+        acquireCount = target.acquireCount,
+        lossCount = target.lossCount,
+        switchCount = target.switchCount,
+        lastTargetId = target.lastTargetId,
+        lastTargetName = target.lastTargetName,
+        lastTargetTag = target.lastTargetTag,
+    }
+end
+
 local function UpdateFromDump(export)
     if not (Private.DumpLog and Private.DumpLog.GetStatus) then
         return
@@ -292,6 +319,7 @@ function DebugExport.Sync(packet)
     UpdateFromPacketAudit(export)
     UpdateFromCadence(export)
     UpdateFromClientProfile(export)
+    UpdateFromTargetSnapshot(export)
     UpdateFromDump(export)
 end
 
@@ -308,6 +336,7 @@ function DebugExport.SyncNoPacket()
     UpdateFromPacketAudit(export)
     UpdateFromCadence(export)
     UpdateFromClientProfile(export)
+    UpdateFromTargetSnapshot(export)
     UpdateFromDump(export)
 end
 

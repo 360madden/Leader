@@ -276,6 +276,8 @@ function Gatherer.GetPacket()
         facing   = 0,
         zoneHash = 0,
         targetID = targetUnitId or (t and t.id) or nil,
+        targetName = tostring(t and t.name or ""),
+        targetTag = t and BuildPlayerTag(t) or "____",
         playerTag = BuildPlayerTag(p),
         playerName = tostring(p.name or ""),
         playerId = tostring(p.id or ""),
